@@ -5,42 +5,46 @@ import { signCustomerToken } from "../shared/jwt.js";
 
 const GENERIC_UNAUTHORIZED_BODY = JSON.stringify({ message: "Credenciais inválidas" });
 
-function maskCpf(cpf: string): string {
-  return `***.***.***-${cpf.slice(-2)}`;
+function correlationId(event: Parameters<APIGatewayProxyHandler>[0]): string {
+  const supplied = event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"];
+  return supplied?.trim() || event.requestContext?.requestId || crypto.randomUUID();
 }
 
 export const handler: APIGatewayProxyHandler = async (event) => {
+  const requestId = correlationId(event);
+  const response = (statusCode: number, body: string) => ({ statusCode, headers: { "content-type": "application/json", "x-correlation-id": requestId }, body });
   let cpf: unknown;
 
   try {
     const body = JSON.parse(event.body ?? "{}") as { cpf?: unknown };
     cpf = body.cpf;
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ message: "Corpo da requisição inválido" }) };
+    return response(400, JSON.stringify({ message: "Corpo da requisição inválido" }));
   }
 
   if (typeof cpf !== "string" || cpf.trim().length === 0) {
-    return { statusCode: 400, body: JSON.stringify({ message: "CPF é obrigatório" }) };
+    return response(400, JSON.stringify({ message: "CPF é obrigatório" }));
   }
 
   const documento = normalizeCpf(cpf);
 
   if (!isValidCpf(documento)) {
-    return { statusCode: 401, body: GENERIC_UNAUTHORIZED_BODY };
+    return response(401, GENERIC_UNAUTHORIZED_BODY);
   }
 
   try {
     const cliente = await findClienteByDocumento(documento);
 
     if (!cliente) {
-      return { statusCode: 401, body: GENERIC_UNAUTHORIZED_BODY };
+      return response(401, GENERIC_UNAUTHORIZED_BODY);
     }
 
-    const { token, expiresIn } = signCustomerToken({ sub: cliente.id, documento });
+    const { token, expiresIn } = await signCustomerToken({ sub: cliente.id, documento });
 
-    return { statusCode: 200, body: JSON.stringify({ token, expiresIn }) };
-  } catch (error) {
-    console.error(`Authentication error for CPF ${maskCpf(documento)}:`, error);
-    return { statusCode: 500, body: JSON.stringify({ message: "Erro interno" }) };
+    console.info(JSON.stringify({ level: "info", event: "customer_authenticated", correlation_id: requestId }));
+    return response(200, JSON.stringify({ token, expiresIn }));
+  } catch {
+    console.error(JSON.stringify({ level: "error", event: "authentication_failed", correlation_id: requestId }));
+    return response(500, JSON.stringify({ message: "Erro interno" }));
   }
 };

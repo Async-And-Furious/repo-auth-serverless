@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, homolog]
+    branches: [main, develop, homolog]
 
 jobs:
   validate:
@@ -14,7 +14,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      - run: npm run package
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive infra
+      - run: terraform init -backend=false -input=false && terraform validate
+        working-directory: infra/hml
+      - run: terraform init -backend=false -input=false && terraform validate
+        working-directory: infra/prod

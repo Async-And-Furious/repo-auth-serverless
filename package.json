@@ -6,11 +6,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "package": "npm run build && python scripts/package-lambda.py",
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.637.0",
+    "@aws-sdk/client-ssm": "^3.637.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.0"
   },
