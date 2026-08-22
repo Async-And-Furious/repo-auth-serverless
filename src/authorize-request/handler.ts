@@ -1,37 +1,34 @@
-import type { APIGatewayRequestAuthorizerEvent, APIGatewaySimpleAuthorizerWithContextResult } from "aws-lambda";
-import { verifyToken } from "../shared/jwt.js";
+import type { APIGatewaySimpleAuthorizerResult } from "aws-lambda";
+import { verifyToken } from "../lib/jwt.js";
+import { getPublicKey } from "../lib/keys.js";
 
-function extractToken(event: APIGatewayRequestAuthorizerEvent): string | undefined {
-  const authHeader =
-    event.headers?.Authorization ?? event.headers?.authorization ?? undefined;
+interface AuthorizerEvent {
+  headers?: Record<string, string | undefined>;
+  requestContext?: { requestId?: string };
+}
 
-  if (!authHeader) {
-    return undefined;
-  }
-
+export function extractBearerToken(
+  authHeader: string | undefined,
+): string | null {
+  if (!authHeader) return null;
   const fields = authHeader.trim().split(/\s+/);
-  return fields.length === 2 && fields[0].toLowerCase() === "bearer" && fields[1] ? fields[1] : undefined;
+  return fields.length === 2 && fields[0].toLowerCase() === "bearer" && fields[1] ? fields[1] : null;
 }
 
 export const handler = async (
-  event: APIGatewayRequestAuthorizerEvent
-): Promise<APIGatewaySimpleAuthorizerWithContextResult<{ correlation_id: string }>> => {
+  event: AuthorizerEvent,
+): Promise<APIGatewaySimpleAuthorizerResult & { context?: { correlation_id: string } }> => {
+  const authHeader = event.headers?.authorization ?? event.headers?.Authorization;
   const suppliedCorrelationId = event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"];
   const correlationId = suppliedCorrelationId?.trim() || event.requestContext?.requestId || crypto.randomUUID();
-  const token = extractToken(event);
-
-  if (!token) {
-    console.warn(JSON.stringify({ level: "warn", event: "authorization_denied", correlation_id: correlationId }));
-    return { isAuthorized: false, context: { correlation_id: correlationId } };
-  }
+  const token = extractBearerToken(authHeader);
+  if (!token) return { isAuthorized: false, context: { correlation_id: correlationId } };
 
   try {
-    await verifyToken(token);
-    console.info(JSON.stringify({ level: "info", event: "request_authorized", correlation_id: correlationId }));
+    const publicKey = await getPublicKey();
+    verifyToken(token, publicKey);
     return { isAuthorized: true, context: { correlation_id: correlationId } };
   } catch {
-    console.error(JSON.stringify({ level: "error", event: "authorization_error", correlation_id: correlationId }));
-    console.warn(JSON.stringify({ level: "warn", event: "authorization_denied", correlation_id: correlationId }));
     return { isAuthorized: false, context: { correlation_id: correlationId } };
   }
 };

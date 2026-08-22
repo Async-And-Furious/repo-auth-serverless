@@ -127,9 +127,7 @@ resource "aws_apigatewayv2_integration" "backend" {
   connection_type        = "VPC_LINK"
   connection_id          = aws_apigatewayv2_vpc_link.backend[0].id
   payload_format_version = "1.0"
-  request_parameters = {
-    "overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"
-  }
+  request_parameters     = { "overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id" }
 }
 resource "aws_apigatewayv2_route" "protected" {
   count              = local.backend_enabled ? 1 : 0

@@ -51,15 +51,14 @@ variable "database_subnet_ids" {
 variable "backend_integration_uri" {
   type    = string
   default = ""
+  validation {
+    condition     = (var.deploy_auth_only && trimspace(var.backend_integration_uri) == "") || can(regex("^arn:[^:]+:elasticloadbalancing:[^:]+:[0-9]{12}:listener/(app|net)/[^/]+/[0-9a-f]+/[0-9a-f]+$", trimspace(var.backend_integration_uri)))
+    error_message = "backend_integration_uri must be an ALB/NLB listener ARN when set; it may be empty only when deploy_auth_only is true."
+  }
 }
 variable "deploy_auth_only" {
-  type        = bool
-  default     = false
-  description = "Explicitly allow an auth-only deployment while the backend target is unavailable."
-  validation {
-    condition     = (var.deploy_auth_only && trimspace(var.backend_integration_uri) == "") || (!var.deploy_auth_only && trimspace(var.backend_integration_uri) != "")
-    error_message = "Use deploy_auth_only=true only without a backend URI, or provide a backend URI with deploy_auth_only=false."
-  }
+  type    = bool
+  default = true
 }
 variable "vpc_link_subnet_ids" {
   type    = list(string)
