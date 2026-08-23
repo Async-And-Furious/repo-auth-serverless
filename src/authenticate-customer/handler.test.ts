@@ -14,4 +14,20 @@ describe("CPF authentication", () => {
     expect(result.statusCode).toBe(400);
     expect(lookup).not.toHaveBeenCalled();
   });
+  it("rejects a JSON null body as an invalid request", async () => {
+    const lookup = vi.fn();
+    const result = await authenticateCustomer({ body: "null", headers: {}, requestContext: { requestId: "corr-1" } as never }, lookup);
+    expect(result.statusCode).toBe(400);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it("returns the generic unauthorized response for an invalid CPF", async () => {
+    const result = await authenticateCustomer({ body: JSON.stringify({ cpf: "529.982.247-24" }), headers: {}, requestContext: { requestId: "corr-1" } as never }, vi.fn());
+    expect(result.statusCode).toBe(401);
+    expect(JSON.parse(result.body)).toEqual({ error: "unauthorized", message: "Invalid customer credentials" });
+  });
+
+  it("falls back from a blank correlation header", async () => {
+    const result = await authenticateCustomer({ body: "{}", headers: { "x-correlation-id": "   " }, requestContext: { requestId: "api-request-1" } as never }, vi.fn());
+    expect(result.headers?.["x-correlation-id"]).toBe("api-request-1");
+  });
 });

@@ -27,20 +27,26 @@ export async function authenticateCustomer(
   event: Pick<APIGatewayProxyEvent, "body" | "headers" | "requestContext">,
   lookup: CustomerLookup = findCustomer,
 ): Promise<APIGatewayProxyResult> {
-  const correlationId = event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"] ?? event.requestContext.requestId ?? crypto.randomUUID();
+  const correlationId = (event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"])?.trim() || event.requestContext.requestId || crypto.randomUUID();
   try {
-    let input: { cpf?: unknown };
+    let input: unknown;
     try {
-      input = event.body ? JSON.parse(event.body) as { cpf?: unknown } : {};
+      input = event.body ? JSON.parse(event.body) : {};
     } catch {
       return response(400, { error: "invalid_request", message: "Request body must be valid JSON" }, correlationId);
     }
-    const cpf = normalizeCpf(input.cpf);
-    if (!cpf) return response(400, { error: "invalid_request", message: "A valid CPF is required" }, correlationId);
+    if (input === null || typeof input !== "object" || Array.isArray(input)) {
+      return response(400, { error: "invalid_request", message: "A valid CPF is required" }, correlationId);
+    }
+    const cpfValue = (input as { cpf?: unknown }).cpf;
+    if (typeof cpfValue !== "string") return response(400, { error: "invalid_request", message: "A valid CPF is required" }, correlationId);
+    const cpf = normalizeCpf(cpfValue);
+    if (!cpf) return response(401, { error: "unauthorized", message: "Invalid customer credentials" }, correlationId);
     const customer = await lookup(cpf);
     if (!customer || !customer.active) return response(401, { error: "unauthorized", message: "Invalid customer credentials" }, correlationId);
-    const token = signToken({ sub: String(customer.id) }, await getPrivateKey());
-    return response(200, { token, token_type: "Bearer", expires_in: 1800 }, correlationId);
+    const expiresIn = Number(process.env.JWT_EXPIRES_IN);
+    const token = signToken({ sub: String(customer.id), documento: cpf, role: "CLIENTE" }, await getPrivateKey());
+    return response(200, { token, token_type: "Bearer", expires_in: expiresIn }, correlationId);
   } catch (error) {
     console.error(JSON.stringify({ level: "error", event: "authenticate_customer_failed", correlation_id: correlationId, error: error instanceof Error ? error.message : "unknown" }));
     return response(500, { error: "internal_error", message: "Unable to authenticate" }, correlationId);

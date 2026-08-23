@@ -9,6 +9,11 @@ Tech Challenge Fase 3 — serverless CPF authentication and JWT authorization.
 
 Out of scope: monolith code, EKS provisioning, RDS provisioning, business schema duplication.
 
+Authentication validates CPF check digits, requires an active customer, and
+returns a generic unauthorized response for invalid or unknown credentials.
+JWTs use strict RS256 algorithm, issuer, audience, and expiry configuration.
+Correlation IDs are returned and propagated to protected backend requests.
+
 ## Status
 
 HML and production Terraform lanes are available through the manual
@@ -36,7 +41,7 @@ variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
 `JWT_PUBLIC_KEY_PARAMETER_ARN`, `DATABASE_SUBNET_IDS`, and
 `DATABASE_SECURITY_GROUP_IDS`. Optional variables are
 `AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
-`BACKEND_INTEGRATION_URI`, `VPC_LINK_SUBNET_IDS`, and
+`BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN), `VPC_LINK_SUBNET_IDS`, and
 `VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
 `["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
 
@@ -83,9 +88,10 @@ commit the source files.
 For local Terraform use, run `terraform init`, `terraform plan`, and only after
 review `terraform apply` in the chosen `infra/hml` or `infra/prod` directory.
 Provide the required variables through an uncommitted tfvars file.
-`backend_integration_uri` plus VPC Link subnet/security-group IDs enables the
-RFC-003 protected EKS route and Lambda Authorizer; leaving it empty creates the
-auth API and authorizer skeleton only.
+`backend_integration_uri` must contain the ALB/NLB listener ARN, plus VPC Link subnet/security-group IDs, to enable the
+RFC-003 protected EKS route and Lambda Authorizer when `deploy_auth_only=false`.
+The default `deploy_auth_only=true` keeps the configuration on the auth-only
+path; the listener ARN is required to enable the protected backend path.
 
 ## Local development
 

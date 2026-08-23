@@ -14,7 +14,8 @@ import { CUSTOMER_LOOKUP_QUERY, findCustomer } from "./customer-repository.js";
 describe("findCustomer", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "postgresql://test:test@localhost/test";
-    pg.Pool.mockReturnValue({ query: pg.query });
+    pg.Pool.mockClear();
+    pg.Pool.mockReturnValue({ query: pg.query, end: vi.fn().mockResolvedValue(undefined) });
     pg.query.mockReset();
   });
 
@@ -37,5 +38,12 @@ describe("findCustomer", () => {
 FROM "Cliente"
 WHERE "documento" = $1
   AND "tipo_documento" = 'CPF'`);
+  });
+
+  it("resets a failed pool so the next invocation can retry", async () => {
+    pg.query.mockRejectedValueOnce(new Error("database unavailable")).mockResolvedValueOnce({ rows: [] });
+    await expect(findCustomer("52998224725")).rejects.toThrow("database unavailable");
+    await expect(findCustomer("52998224725")).resolves.toBeNull();
+    expect(pg.Pool).toHaveBeenCalledTimes(1);
   });
 });

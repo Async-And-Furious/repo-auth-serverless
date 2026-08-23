@@ -19,7 +19,7 @@ resources could be implemented for real.
 1. **Ownership**: `repo-auth-serverless` owns the API Gateway resource,
    routes (`/auth`, protected routes), and the Lambda Authorizer
    association. `repo-k8s-infra` owns only the private integration target
-   (internal ALB) and exposes its ARN/DNS name as a Terraform output for
+   (internal ALB) and exposes its listener ARN as a Terraform output for
    `repo-auth-serverless` to consume.
 2. **Integration**: HTTP API (not REST API) with a VPC Link to an internal
    Application Load Balancer in the EKS VPC, using `HTTP_PROXY` integration.
@@ -42,7 +42,9 @@ resources could be implemented for real.
 ## Consequences
 
 - `repo-k8s-infra` must provision an internal ALB (via AWS Load Balancer
-  Controller / Ingress) and output its DNS name/ARN.
+  Controller / Ingress) and output its listener ARN. The
+  `backend_integration_uri` input in this repository carries that ARN; this
+  document records the contract, not runtime deployment evidence.
 - `repo-auth-serverless` must provision the HTTP API, routes, VPC Link, and
   Lambda Authorizer, consuming the ALB output from `repo-k8s-infra`.
 - Future microservice split: add Kubernetes Ingress rules + Gateway routes

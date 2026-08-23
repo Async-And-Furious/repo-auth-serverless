@@ -143,15 +143,15 @@ gh variable set AWS_ROLE_ARN --body "arn:aws:iam::<ACCOUNT_ID>:role/tc3-github-a
 gh variable set AWS_ROLE_ARN --body "arn:aws:iam::<ACCOUNT_ID>:role/tc3-github-actions-terraform" -R Async-And-Furious/repo-db-infra
 ```
 
-## 7. Create the `hml-apply` GitHub Environment (manual approval gate)
+## 7. Create the `hml` and `prod` GitHub Environments (manual approval gates)
 
-For **both** repos: Settings → Environments → New environment → name it
-exactly `hml-apply` → add yourself (or whoever should approve) as a
-required reviewer.
+For **both** repos: Settings → Environments → create environments named
+exactly `hml` and `prod`, and add yourself (or whoever should approve) as a
+required reviewer for each.
 
-This is what the `apply` job in each repo's `ci.yml` targets
-(`environment: hml-apply`) — without this environment existing, the
-`apply` job fails to even start, it doesn't skip silently.
+The workflow-dispatch `terraform` job targets the selected environment
+(`environment: hml` or `environment: prod`). Without the selected environment
+existing, the job fails to start with its intended approval gate.
 
 ## 8. Order of operations
 
@@ -159,7 +159,7 @@ This is what the `apply` job in each repo's `ci.yml` targets
 2. IAM role + trust policy + permissions (§3–4).
 3. S3 bucket + DynamoDB table (§5).
 4. `AWS_ROLE_ARN` repo variable in both repos (§6).
-5. `hml-apply` environment in both repos (§7).
+5. `hml` and `prod` environments in both repos (§7).
 6. Merge the pending CI/CD PRs (repo-k8s-infra #1, repo-db-infra #1) and
    the infra PRs (repo-k8s-infra #3, repo-db-infra #3) — review first,
    they've been sitting unmerged.

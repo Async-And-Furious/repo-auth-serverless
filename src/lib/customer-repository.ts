@@ -6,6 +6,7 @@ export type CustomerLookup = (cpf: string) => Promise<Customer | null>;
 
 const secrets = new SecretsManagerClient({});
 let pool: pg.Pool | undefined;
+let poolPromise: Promise<pg.Pool> | undefined;
 
 export const CUSTOMER_LOOKUP_QUERY = `SELECT "id", "ativo" AS "active"
 FROM "Cliente"
@@ -28,7 +29,32 @@ async function connectionString(): Promise<string> {
 }
 
 export async function findCustomer(cpf: string): Promise<Customer | null> {
-  if (!pool) pool = new pg.Pool({ connectionString: await connectionString(), max: 2 });
-  const result = await pool.query<{ id: string | number; active: boolean }>(CUSTOMER_LOOKUP_QUERY, [cpf]);
-  return result.rows[0] ?? null;
+  if (!poolPromise) {
+    poolPromise = connectionString().then((value) => {
+      const candidate = new pg.Pool({ connectionString: value, max: 2 });
+      pool = candidate;
+      return candidate;
+    });
+  }
+
+  let currentPool: pg.Pool;
+  try {
+    currentPool = await poolPromise;
+  } catch (error) {
+    const failedPool = pool;
+    pool = undefined;
+    poolPromise = undefined;
+    await failedPool?.end().catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    const result = await currentPool.query<{ id: string | number; active: boolean }>(CUSTOMER_LOOKUP_QUERY, [cpf]);
+    return result.rows[0] ?? null;
+  } catch (error) {
+    await currentPool.end().catch(() => undefined);
+    pool = undefined;
+    poolPromise = undefined;
+    throw error;
+  }
 }
