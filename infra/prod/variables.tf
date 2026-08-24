@@ -10,6 +10,20 @@ variable "jwt_private_key_secret_arn" { type = string }
 variable "jwt_public_key_parameter_name" { type = string }
 variable "jwt_public_key_parameter_arn" { type = string }
 variable "database_secret_arn" { type = string }
+variable "academy_mode" {
+  description = "Use the pre-existing AWS Academy LabRole and do not create IAM roles or policies."
+  type        = bool
+  default     = false
+}
+variable "lab_role_arn" {
+  description = "Existing Lambda execution role ARN, required in academy_mode."
+  type        = string
+  default     = ""
+  validation {
+    condition     = !var.academy_mode || can(regex("^arn:[^:]+:iam::[0-9]{12}:role/.+$", trimspace(var.lab_role_arn)))
+    error_message = "lab_role_arn must be an IAM role ARN when academy_mode is true."
+  }
+}
 variable "jwt_issuer" {
   type    = string
   default = "repo-auth-serverless"

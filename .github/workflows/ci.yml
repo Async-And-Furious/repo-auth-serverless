@@ -16,6 +16,16 @@ on:
         required: true
         type: choice
         options: [plan, apply]
+      academy_mode:
+        description: Use pre-existing LabRole and temporary AWS credentials
+        required: true
+        type: boolean
+        default: false
+      deploy_auth_only:
+        description: Deploy only authentication resources (ignored when backend integration is configured)
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   validate:
@@ -65,11 +75,16 @@ jobs:
       TF_VAR_jwt_audience: ${{ vars.JWT_AUDIENCE }}
       TF_VAR_jwt_expires_in: ${{ vars.JWT_EXPIRES_IN || '1800' }}
       TF_VAR_database_secret_arn: ${{ secrets.DATABASE_SECRET_ARN }}
+      TF_VAR_academy_mode: ${{ inputs.academy_mode }}
+      TF_VAR_lab_role_arn: ${{ vars.LAB_ROLE_ARN }}
       TF_VAR_auth_lambda_role_arn: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TF_VAR_authorizer_lambda_role_arn: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
       TF_VAR_database_subnet_ids: ${{ vars.DATABASE_SUBNET_IDS }}
       TF_VAR_database_security_group_ids: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
       TF_VAR_backend_integration_uri: ${{ vars.BACKEND_INTEGRATION_URI }}
+      # A configured backend is the full-deployment signal. Auth-only remains
+      # available only as an intentional dispatch with no backend URI.
+      TF_VAR_deploy_auth_only: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
       TF_VAR_vpc_link_subnet_ids: ${{ vars.VPC_LINK_SUBNET_IDS }}
       TF_VAR_vpc_link_security_group_ids: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
     steps:
@@ -91,11 +106,16 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
       - name: Configure AWS credentials with OIDC
-        if: env.AWS_ACCESS_KEY_ID == '' && env.AWS_SECRET_ACCESS_KEY == '' && env.AWS_SESSION_TOKEN == ''
+        if: inputs.academy_mode == false && env.AWS_ACCESS_KEY_ID == '' && env.AWS_SECRET_ACCESS_KEY == '' && env.AWS_SESSION_TOKEN == ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: Require temporary credentials in Academy mode
+        if: inputs.academy_mode == true
+        run: >-
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" &&
+          test -n "$AWS_SESSION_TOKEN"
       - uses: hashicorp/setup-terraform@v3
       - working-directory: infra/${{ inputs.environment }}
         run: terraform init -input=false

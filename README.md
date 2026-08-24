@@ -30,11 +30,17 @@ package command and artifact for a manually selected `plan` or `apply` in
 
 Configure the selected GitHub Environment (`hml` or `prod`) with these secrets:
 
-- OIDC mode: `AWS_ROLE_ARN`, `JWT_PRIVATE_KEY_SECRET_ARN`, and
+- Normal mode: `AWS_ROLE_ARN`, `JWT_PRIVATE_KEY_SECRET_ARN`, and
   `DATABASE_SECRET_ARN`.
 - AWS Academy mode: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-  `AWS_SESSION_TOKEN` (temporary credentials). When both the access key and
-  three are present, the workflow uses them; otherwise it falls back to OIDC.
+  `AWS_SESSION_TOKEN` (temporary credentials). Select `academy_mode=true` in
+  the manual workflow dispatch; this disables the OIDC path.
+
+The manual dispatch also exposes `deploy_auth_only`, which defaults to `false`.
+The workflow exports `TF_VAR_deploy_auth_only` as `true` only when this input is
+explicitly enabled and `BACKEND_INTEGRATION_URI` is empty. A configured backend
+URI always selects the full deployment path, even if the input is accidentally
+set to `true`.
 
 The OIDC role must be trusted by GitHub Actions. Required non-secret Actions
 variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
@@ -45,21 +51,23 @@ variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
 `VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
 `["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
 
-For AWS Academy/Lab, set the optional existing Lambda execution roles as
-environment variables (they are not secrets):
+For AWS Academy/Lab, select `academy_mode=true` and set the existing Lambda
+execution role as a non-secret environment variable:
 
 ```bash
-gh variable set AUTH_LAMBDA_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-gh variable set AUTHORIZER_LAMBDA_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-gh variable set AUTH_LAMBDA_ROLE_ARN --env prod --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-gh variable set AUTHORIZER_LAMBDA_ROLE_ARN --env prod --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
+gh variable set LAB_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
+gh variable set LAB_ROLE_ARN --env prod --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
 ```
 
-When either ARN is set, Terraform does not create or attach policies to that
-role and uses it directly. The existing role must trust Lambda and already
+In Academy mode, Terraform creates no IAM roles, role attachments, or inline
+policies and uses `LAB_ROLE_ARN` for both Lambdas. The existing role must trust Lambda and already
 permit the function's CloudWatch, Secrets Manager, VPC, and/or SSM access;
 AWS Academy `LabRole` permissions are account-limited and may not support every
 resource configuration.
+
+Normal mode may still use `AUTH_LAMBDA_ROLE_ARN` and
+`AUTHORIZER_LAMBDA_ROLE_ARN` to supply separate pre-existing roles; otherwise
+Terraform creates them.
 
 ### Rotate AWS Academy credentials with `gh`
 
@@ -88,10 +96,18 @@ commit the source files.
 For local Terraform use, run `terraform init`, `terraform plan`, and only after
 review `terraform apply` in the chosen `infra/hml` or `infra/prod` directory.
 Provide the required variables through an uncommitted tfvars file.
-`backend_integration_uri` must contain the ALB/NLB listener ARN, plus VPC Link subnet/security-group IDs, to enable the
+Integration values still required for a full deployment are the JWT private-key
+Secrets Manager ARN, database secret ARN, JWT public-key SSM parameter name and
+ARN, Lambda VPC subnet/security-group IDs, and (when `deploy_auth_only=false`)
+the ALB/NLB listener ARN as `backend_integration_uri` plus VPC Link
+subnet/security-group IDs. The API Gateway backend URI is not known by this
+repository and must be supplied by the Kubernetes/infrastructure deployment;
+it must be an ALB/NLB listener ARN, not a normal HTTP URL. `backend_integration_uri`
+must contain the listener ARN, plus VPC Link subnet/security-group IDs, to enable the
 RFC-003 protected EKS route and Lambda Authorizer when `deploy_auth_only=false`.
-The default `deploy_auth_only=true` keeps the configuration on the auth-only
-path; the listener ARN is required to enable the protected backend path.
+The Terraform module default `deploy_auth_only=true` is a safe local auth-only
+fallback. The workflow default is `false`; its backend URI rule above ensures
+that an orchestrated full deployment enables the protected backend path.
 
 ## Local development
 

@@ -10,34 +10,36 @@ data "aws_iam_policy_document" "lambda_assume" {
 
 locals {
   lambda_package_path        = var.lambda_package_path != "" ? var.lambda_package_path : "${path.module}/../../dist.zip"
-  auth_lambda_role_arn       = var.auth_lambda_role_arn != "" ? var.auth_lambda_role_arn : aws_iam_role.auth[0].arn
-  authorizer_lambda_role_arn = var.authorizer_lambda_role_arn != "" ? var.authorizer_lambda_role_arn : aws_iam_role.authorizer[0].arn
+  create_auth_lambda_role    = !var.academy_mode && trimspace(var.auth_lambda_role_arn) == ""
+  create_authorizer_role     = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) == ""
+  auth_lambda_role_arn       = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.auth_lambda_role_arn) != "" ? trimspace(var.auth_lambda_role_arn) : aws_iam_role.auth[0].arn
+  authorizer_lambda_role_arn = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.authorizer_lambda_role_arn) != "" ? trimspace(var.authorizer_lambda_role_arn) : aws_iam_role.authorizer[0].arn
   backend_enabled            = !var.deploy_auth_only && trimspace(var.backend_integration_uri) != ""
 }
 
 resource "aws_iam_role" "auth" {
-  count              = var.auth_lambda_role_arn == "" ? 1 : 0
+  count              = local.create_auth_lambda_role ? 1 : 0
   name               = "${var.name_prefix}-auth"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 resource "aws_iam_role" "authorizer" {
-  count              = var.authorizer_lambda_role_arn == "" ? 1 : 0
+  count              = local.create_authorizer_role ? 1 : 0
   name               = "${var.name_prefix}-authorizer"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 resource "aws_iam_role_policy_attachment" "auth_logs" {
-  count      = var.auth_lambda_role_arn == "" ? 1 : 0
+  count      = local.create_auth_lambda_role ? 1 : 0
   role       = aws_iam_role.auth[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 resource "aws_iam_role_policy_attachment" "authorizer_logs" {
-  count      = var.authorizer_lambda_role_arn == "" ? 1 : 0
+  count      = local.create_authorizer_role ? 1 : 0
   role       = aws_iam_role.authorizer[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_role_policy" "runtime" {
-  count = var.auth_lambda_role_arn == "" ? 1 : 0
+  count = local.create_auth_lambda_role ? 1 : 0
   role  = aws_iam_role.auth[0].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [var.jwt_private_key_secret_arn, var.database_secret_arn] },
@@ -45,7 +47,7 @@ resource "aws_iam_role_policy" "runtime" {
   ] })
 }
 resource "aws_iam_role_policy" "authorizer_ssm" {
-  count  = var.authorizer_lambda_role_arn == "" ? 1 : 0
+  count  = local.create_authorizer_role ? 1 : 0
   role   = aws_iam_role.authorizer[0].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn }] })
 }

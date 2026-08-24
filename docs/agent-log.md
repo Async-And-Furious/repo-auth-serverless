@@ -47,3 +47,22 @@
 - The monolith consumer must resolve `sub` by `Cliente.id` and active status.
 - No AWS or Terraform apply was run. Lambda-to-PostgreSQL SSL parameters remain
   an operational follow-up because the deployed RDS CA/SSL policy is not known.
+
+## 2026-08-24 — AWS Academy compatibility
+
+- Added explicit `academy_mode` and required `lab_role_arn` inputs to HML and
+  production Terraform. Academy mode reuses the existing role for both Lambdas
+  and skips all IAM role, attachment, and inline-policy resources.
+- Added workflow dispatch and environment wiring for Academy mode; it requires
+  temporary credentials and does not fall back to GitHub OIDC. Updated README
+  with required integration values and role permissions caveats.
+- Validation passed: lint, typecheck, 19 tests, build, Terraform formatting, and
+  `terraform validate` for HML and production. No Terraform apply was run.
+
+## 2026-08-24 — Auth deployment workflow contract
+
+- Added the explicit `deploy_auth_only` dispatch input and exported
+  `TF_VAR_deploy_auth_only` with the backend URI safety rule: a configured
+  `BACKEND_INTEGRATION_URI` always selects full deployment.
+- Documented auth-only/full-deployment selection and retained Academy LabRole
+  reuse without IAM resource creation. No Terraform apply was run.

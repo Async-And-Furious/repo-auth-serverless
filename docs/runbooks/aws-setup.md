@@ -153,6 +153,18 @@ The workflow-dispatch `terraform` job targets the selected environment
 (`environment: hml` or `environment: prod`). Without the selected environment
 existing, the job fails to start with its intended approval gate.
 
+### Auth-only versus full deployment
+
+The dispatch input `deploy_auth_only` defaults to `false`. The workflow exports
+`TF_VAR_deploy_auth_only=true` only for an explicit auth-only dispatch when
+`BACKEND_INTEGRATION_URI` is empty. When that variable is present, Terraform
+always receives `false`, so the orchestrator's full deployment creates the
+protected backend route and VPC Link instead of silently remaining auth-only.
+
+With `academy_mode=true`, Terraform reuses the configured `LAB_ROLE_ARN` for
+both Lambdas and creates no IAM roles, attachments, or inline policies. This is
+independent of the auth-only/full-deployment selection.
+
 ## 8. Order of operations
 
 1. OIDC provider (§2) — once per account.
