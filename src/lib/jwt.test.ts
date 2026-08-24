@@ -13,17 +13,18 @@ process.env.JWT_ISSUER = "test-issuer";
 process.env.JWT_AUDIENCE = "test-audience";
 process.env.JWT_EXPIRES_IN = "1800";
 
-const claims = { sub: "customer-123", documento: "52998224725", role: "CLIENTE" as const };
+const claims = { sub: "customer-123" };
 
 describe("signToken / verifyToken", () => {
   it("round-trips claims through sign and verify", () => {
     const token = signToken(claims, privateKey);
     const verified = verifyToken(token, publicKey);
     expect(verified.sub).toBe("customer-123");
+    expect(verified.exp - verified.iat).toBe(1800);
   });
 
   it("rejects an expired token", () => {
-    const token = signToken(claims, privateKey, -1);
+    const token = jwt.sign(claims, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "test-audience", expiresIn: -1 });
     expect(() => verifyToken(token, publicKey)).toThrow();
   });
 
@@ -37,11 +38,15 @@ describe("signToken / verifyToken", () => {
     expect(() => verifyToken(token, publicKey)).toThrow();
   });
 
-  it("rejects wrong issuer, audience, role, or algorithm", () => {
+  it("rejects wrong issuer, audience, or algorithm", () => {
     const token = jwt.sign(claims, privateKey, { algorithm: "RS256", issuer: "wrong", audience: "test-audience" });
     expect(() => verifyToken(token, publicKey)).toThrow();
+    const wrongAudience = jwt.sign(claims, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "wrong" });
+    expect(() => verifyToken(wrongAudience, publicKey)).toThrow();
     const differentAlgorithm = jwt.sign(claims, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "test-audience" });
     expect(() => verifyToken(differentAlgorithm.replace(/^eyJhbGciOiJSUzI1NiIs/, "eyJhbGciOiJIUzI1NiIs"), publicKey)).toThrow();
+    const missingSubject = jwt.sign({ ...claims, sub: "" }, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "test-audience" });
+    expect(() => verifyToken(missingSubject, publicKey)).toThrow();
   });
 
   it("fails closed when JWT configuration is missing", () => {

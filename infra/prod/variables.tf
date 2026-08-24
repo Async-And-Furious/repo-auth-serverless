@@ -10,11 +10,29 @@ variable "jwt_private_key_secret_arn" { type = string }
 variable "jwt_public_key_parameter_name" { type = string }
 variable "jwt_public_key_parameter_arn" { type = string }
 variable "database_secret_arn" { type = string }
-variable "jwt_issuer" { type = string }
-variable "jwt_audience" { type = string }
+variable "jwt_issuer" {
+  type    = string
+  default = "repo-auth-serverless"
+  validation {
+    condition     = var.jwt_issuer == "repo-auth-serverless"
+    error_message = "jwt_issuer must be repo-auth-serverless."
+  }
+}
+variable "jwt_audience" {
+  type    = string
+  default = "async-furious-project"
+  validation {
+    condition     = var.jwt_audience == "async-furious-project"
+    error_message = "jwt_audience must be async-furious-project."
+  }
+}
 variable "jwt_expires_in" {
   type    = number
   default = 1800
+  validation {
+    condition     = var.jwt_expires_in == 1800
+    error_message = "jwt_expires_in must be 1800 seconds."
+  }
 }
 variable "auth_lambda_role_arn" {
   type    = string

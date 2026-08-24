@@ -38,3 +38,12 @@
 - Wired the non-secret GitHub Environment variables into the workflow and
   documented `gh variable set` commands and the LabRole permissions caveat.
 - Validation was left to the orchestrator; no Terraform apply was run.
+
+## 2026-08-23 — Cross-repository JWT contract
+
+- Standardized Lambda tokens on `sub=Cliente.id`, RS256, issuer
+  `repo-auth-serverless`, audience `async-furious-project`, and 1800 seconds;
+  raw CPF/document claims are no longer emitted.
+- The monolith consumer must resolve `sub` by `Cliente.id` and active status.
+- No AWS or Terraform apply was run. Lambda-to-PostgreSQL SSL parameters remain
+  an operational follow-up because the deployed RDS CA/SSL policy is not known.
