@@ -80,3 +80,10 @@
   names in each Terraform root.
 - Simplified workflow initialization to use the root backend configuration;
   Academy credential handling remains unchanged. No Terraform apply was run.
+
+## 2026-08-24 — Remote backend local execution
+
+- Replaced workflow Terraform variable/plan artifact handling with a temporary
+  `terraform.auto.tfvars.json`; plan now runs without `-out` and apply executes
+  directly. HML, production, Academy credentials, and TF_TOKEN handling remain
+  unchanged. No Terraform apply was run.
