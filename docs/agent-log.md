@@ -73,3 +73,10 @@
   local execution and state-only workspaces `tc3-auth-hml`/`tc3-auth-prod`.
 - Added the GitHub `TF_API_TOKEN` mapping; AWS Academy credentials remain GitHub
   secrets and are not configured in HCP Terraform. No Terraform apply was run.
+
+## 2026-08-24 — HCP Terraform backend initialization
+
+- Configured the HCP Terraform organization and static HML/production workspace
+  names in each Terraform root.
+- Simplified workflow initialization to use the root backend configuration;
+  Academy credential handling remains unchanged. No Terraform apply was run.
