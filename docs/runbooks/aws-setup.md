@@ -101,7 +101,8 @@ written in both repos:
 - RDS (`aws_db_instance`, subnet group, security group)
 - Secrets Manager (read/describe — needed because RDS's
   `manage_master_user_password` creates a secret automatically)
-- S3 + DynamoDB (for the remote state backend itself, see §5)
+- HCP Terraform state access is configured separately in §5; no AWS state
+  bucket or DynamoDB lock table is required.
 
 For a class project, `PowerUserAccess` managed policy attached to this
 role is the pragmatic shortcut (avoids hand-writing a huge least-privilege
@@ -109,28 +110,31 @@ JSON policy for a handful of resource types). If whoever owns the AWS
 account wants tighter scoping instead, say so and I'll write the explicit
 policy document.
 
-## 5. Provision the Terraform remote state backend
+## 5. Configure HCP Terraform state-only workspaces
 
-This has to exist **before** `terraform init` (against the real backend,
-not `-backend=false`) works in either repo's pipeline. Names must match
-exactly what's already in the code:
+Terraform runs locally (including from GitHub Actions) while state is stored in
+HCP Terraform. In organization `async_furious`, create these workspaces:
+
+- `tc3-auth-hml`
+- `tc3-auth-prod`
+
+The auth repository initializes them with `backend-config` values; no S3
+bucket, DynamoDB table, AWS credential, or other deployment secret belongs in
+HCP Terraform. Set the HCP user/team token as the GitHub Environment secret
+`TF_API_TOKEN`; Terraform consumes it as `TF_TOKEN_app_terraform_io`.
+
+For local execution, export `TF_TOKEN_app_terraform_io` (or use `terraform
+login`) and initialize from the matching root:
 
 ```bash
-aws s3api create-bucket --bucket tc3-terraform-state --region us-east-1
-aws s3api put-bucket-versioning --bucket tc3-terraform-state \
-  --versioning-configuration Status=Enabled
-aws s3api put-bucket-encryption --bucket tc3-terraform-state \
-  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-
-aws dynamodb create-table \
-  --table-name tc3-terraform-locks \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST
+terraform init -reconfigure \
+  -backend-config=organization=async_furious \
+  -backend-config=workspaces.name=tc3-auth-hml
 ```
 
-Referenced from: `repo-k8s-infra/environments/{hml,prod}/backend.tf` and
-`repo-db-infra/environments/{hml,prod}/backend.tf`.
+Use `tc3-auth-prod` for `infra/prod`. Keep AWS Academy temporary credentials
+only in the GitHub `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`AWS_SESSION_TOKEN` secrets.
 
 ## 6. Set the repo variable in GitHub
 
@@ -169,7 +173,7 @@ independent of the auth-only/full-deployment selection.
 
 1. OIDC provider (§2) — once per account.
 2. IAM role + trust policy + permissions (§3–4).
-3. S3 bucket + DynamoDB table (§5).
+3. HCP Terraform workspaces and `TF_API_TOKEN` (§5).
 4. `AWS_ROLE_ARN` repo variable in both repos (§6).
 5. `hml` and `prod` environments in both repos (§7).
 6. Merge the pending CI/CD PRs (repo-k8s-infra #1, repo-db-infra #1) and
@@ -178,6 +182,6 @@ independent of the auth-only/full-deployment selection.
 7. Push to `develop` in either repo → watch `plan` run for real → approve
    `apply` in the Actions tab when ready.
 
-Expect the first real `plan` to surface things a `-backend=false` local
-validate can't catch (IAM permission gaps, AZ availability, quota limits)
+Expect the first real `plan` to surface things a `-backend=false` validation
+can't catch (HCP workspace access, IAM permission gaps, AZ availability, quota limits)
 — that's normal, budget time to iterate once real credentials exist.

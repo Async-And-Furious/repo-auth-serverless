@@ -66,3 +66,10 @@
   `BACKEND_INTEGRATION_URI` always selects full deployment.
 - Documented auth-only/full-deployment selection and retained Academy LabRole
   reuse without IAM resource creation. No Terraform apply was run.
+
+## 2026-08-24 — HCP Terraform state
+
+- Switched HML and production roots to the HCP Terraform remote backend with
+  local execution and state-only workspaces `tc3-auth-hml`/`tc3-auth-prod`.
+- Added the GitHub `TF_API_TOKEN` mapping; AWS Academy credentials remain GitHub
+  secrets and are not configured in HCP Terraform. No Terraform apply was run.

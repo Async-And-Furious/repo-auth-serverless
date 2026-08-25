@@ -66,6 +66,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_lambda_package_path: ${{ github.workspace }}/dist.zip
       TF_VAR_jwt_private_key_secret_arn: ${{ secrets.JWT_PRIVATE_KEY_SECRET_ARN }}
@@ -118,7 +119,7 @@ jobs:
           test -n "$AWS_SESSION_TOKEN"
       - uses: hashicorp/setup-terraform@v3
       - working-directory: infra/${{ inputs.environment }}
-        run: terraform init -input=false
+        run: terraform init -reconfigure -backend-config=organization=async_furious -backend-config=workspaces.name=tc3-auth-${{ inputs.environment }} -input=false
       - name: Terraform plan
         if: inputs.operation == 'plan' || inputs.operation == 'apply'
         working-directory: infra/${{ inputs.environment }}
