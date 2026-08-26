@@ -87,3 +87,9 @@
   `terraform.auto.tfvars.json`; plan now runs without `-out` and apply executes
   directly. HML, production, Academy credentials, and TF_TOKEN handling remain
   unchanged. No Terraform apply was run.
+
+## 2026-08-26 — Direct apply workflow
+
+- Split manual Terraform plan and apply into separate jobs. Apply now runs after
+  validation without a plan step while retaining remote backend and Academy
+  credential handling. No Terraform apply was run.

@@ -48,8 +48,8 @@ jobs:
         working-directory: infra/hml
       - run: terraform init -backend=false -input=false && terraform validate
         working-directory: infra/prod
-  terraform:
-    if: github.event_name == 'workflow_dispatch'
+  plan:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'plan'
     needs: validate
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
@@ -168,11 +168,130 @@ jobs:
       - working-directory: infra/${{ inputs.environment }}
         run: terraform init -reconfigure -input=false
       - name: Terraform plan
-        if: inputs.operation == 'plan' || inputs.operation == 'apply'
         working-directory: infra/${{ inputs.environment }}
         run: terraform plan -input=false
+      - name: Remove temporary Terraform variables
+        if: always()
+        working-directory: infra/${{ inputs.environment }}
+        run: rm -f terraform.auto.tfvars.json
+  apply:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'apply'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TFVARS_AWS_REGION: ${{ vars.AWS_REGION }}
+      TFVARS_LAMBDA_PACKAGE_PATH: ${{ github.workspace }}/dist.zip
+      TFVARS_JWT_PRIVATE_KEY_SECRET_ARN: ${{ secrets.JWT_PRIVATE_KEY_SECRET_ARN }}
+      TFVARS_JWT_PUBLIC_KEY_PARAMETER_NAME: ${{ vars.JWT_PUBLIC_KEY_PARAMETER_NAME }}
+      TFVARS_JWT_PUBLIC_KEY_PARAMETER_ARN: ${{ vars.JWT_PUBLIC_KEY_PARAMETER_ARN }}
+      TFVARS_JWT_ISSUER: ${{ vars.JWT_ISSUER }}
+      TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE }}
+      TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
+      TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
+      TFVARS_ACADEMY_MODE: ${{ inputs.academy_mode }}
+      TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
+      TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
+      TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
+      TFVARS_DATABASE_SUBNET_IDS: ${{ vars.DATABASE_SUBNET_IDS }}
+      TFVARS_DATABASE_SECURITY_GROUP_IDS: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
+      TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
+      TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
+      TFVARS_VPC_LINK_SUBNET_IDS: ${{ vars.VPC_LINK_SUBNET_IDS }}
+      TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run package
+      - name: Reject partial temporary credentials
+        if: >-
+          (env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '' || env.AWS_SESSION_TOKEN != '') &&
+          !(env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.AWS_SESSION_TOKEN != '')
+        run: exit 1
+      - name: Configure AWS credentials from temporary credentials
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.AWS_SESSION_TOKEN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
+      - name: Configure AWS credentials with OIDC
+        if: inputs.academy_mode == false && env.AWS_ACCESS_KEY_ID == '' && env.AWS_SECRET_ACCESS_KEY == '' && env.AWS_SESSION_TOKEN == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: Require temporary credentials in Academy mode
+        if: inputs.academy_mode == true
+        run: >-
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" &&
+          test -n "$AWS_SESSION_TOKEN"
+      - uses: hashicorp/setup-terraform@v3
+      - name: Write Terraform variables
+        working-directory: infra/${{ inputs.environment }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          def value(name):
+              return os.environ[name]
+
+          def boolean(name):
+              return value(name).lower() == "true"
+
+          def number(name):
+              return int(value(name))
+
+          def string_list(name):
+              raw = value(name).strip()
+              if not raw:
+                  return []
+              try:
+                  parsed = json.loads(raw)
+                  return parsed if isinstance(parsed, list) else [str(parsed)]
+              except json.JSONDecodeError:
+                  return [item.strip() for item in raw.split(",") if item.strip()]
+
+          variables = {
+              "aws_region": value("TFVARS_AWS_REGION"),
+              "lambda_package_path": value("TFVARS_LAMBDA_PACKAGE_PATH"),
+              "jwt_private_key_secret_arn": value("TFVARS_JWT_PRIVATE_KEY_SECRET_ARN"),
+              "jwt_public_key_parameter_name": value("TFVARS_JWT_PUBLIC_KEY_PARAMETER_NAME"),
+              "jwt_public_key_parameter_arn": value("TFVARS_JWT_PUBLIC_KEY_PARAMETER_ARN"),
+              "jwt_issuer": value("TFVARS_JWT_ISSUER"),
+              "jwt_audience": value("TFVARS_JWT_AUDIENCE"),
+              "jwt_expires_in": number("TFVARS_JWT_EXPIRES_IN"),
+              "database_secret_arn": value("TFVARS_DATABASE_SECRET_ARN"),
+              "academy_mode": boolean("TFVARS_ACADEMY_MODE"),
+              "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
+              "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
+              "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
+              "database_subnet_ids": string_list("TFVARS_DATABASE_SUBNET_IDS"),
+              "database_security_group_ids": string_list("TFVARS_DATABASE_SECURITY_GROUP_IDS"),
+              "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
+              "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
+              "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
+              "vpc_link_security_group_ids": string_list("TFVARS_VPC_LINK_SECURITY_GROUP_IDS"),
+          }
+          with open("terraform.auto.tfvars.json", "w", encoding="utf-8") as file:
+              json.dump(variables, file)
+          PY
+      - working-directory: infra/${{ inputs.environment }}
+        run: terraform init -reconfigure -input=false
       - name: Terraform apply
-        if: inputs.operation == 'apply'
         working-directory: infra/${{ inputs.environment }}
         run: terraform apply -input=false -auto-approve
       - name: Remove temporary Terraform variables
