@@ -95,30 +95,29 @@ commit the source files.
 
 ### Terraform state and local execution
 
-Terraform execution is local; only state is stored remotely in HCP Terraform.
-The roots use the HCP organization `async_furious` and workspaces
-`tc3-auth-hml` and `tc3-auth-prod`. Create both workspaces before use and keep
-them state-only: AWS credentials and deployment variables are supplied by the
-local environment or GitHub Actions, not stored as HCP workspace variables.
+Terraform runs on the Actions runner and stores state in the account-qualified
+S3 bucket `tc3-tfstate-<account-id>` at
+`repo-auth-serverless/<environment>/terraform.tfstate`, with native S3 locking.
+Normal `plan` and `apply` operations bootstrap that bucket before initialization.
 
-Set a HCP Terraform user/team token locally as `TF_TOKEN_app_terraform_io` (or
-configure it with `terraform login`). GitHub Actions requires the environment
-secret `TF_API_TOKEN` for the selected GitHub Environment. AWS Academy
-credentials remain only in the GitHub `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` secrets and must never be
-copied to HCP Terraform.
+Manual `destroy-plan` and `destroy` operations are intentionally limited to
+`environment=hml` and `academy_mode=true`; production destroy is rejected.
+`destroy` additionally requires the exact confirmation `DESTROY HML`.
+The destroy preflight only reads the current account's existing bucket and
+state. A missing bucket, missing key, zero-byte object, or state with no managed
+resource instances is a successful no-op. Authorization and other AWS errors
+fail the run. Destroy never creates or changes backend settings, and retains
+both the bucket and state object.
 
-From the selected root, initialize the matching state workspace and then run
-the usual local commands:
+Destroy operations skip Lambda packaging and deployment-only JWT/database
+input checks. Terraform still evaluates required root variables before building
+a destroy graph, so the workflow supplies clearly named, non-secret placeholders
+and disables deploy-only VPC/backend branches. `destroy-plan` only plans;
+confirmed `destroy` saves a destroy plan and applies that exact file.
 
-```bash
-terraform init -reconfigure \
-  -backend-config=organization=async_furious \
-  -backend-config=workspaces.name=tc3-auth-hml
-terraform plan
-```
-
-Use `tc3-auth-prod` from `infra/prod`; run `terraform apply` only after review.
+For local execution, generate an uncommitted `backend.hcl` for the existing S3
+backend, initialize the selected root, and run the usual Terraform commands.
+Use `infra/prod` only for plan/apply; run apply only after review.
 Provide the required variables through an uncommitted tfvars file.
 Integration values still required for a full deployment are the JWT private-key
 Secrets Manager ARN, database secret ARN, JWT public-key SSM parameter name and
