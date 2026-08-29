@@ -8,6 +8,10 @@ describe("CPF authentication", () => {
     const result = await authenticateCustomer({ body: JSON.stringify({ cpf: "529.982.247-25" }), headers: {}, requestContext: { requestId: "corr-1" } as never }, async () => ({ id: "c-1", active: false }));
     expect(result.statusCode).toBe(401);
   });
+  it("rejects a nonexistent customer without issuing a token", async () => {
+    const result = await authenticateCustomer({ body: JSON.stringify({ cpf: "529.982.247-25" }), headers: {}, requestContext: { requestId: "corr-1" } as never }, async () => null);
+    expect(result.statusCode).toBe(401);
+  });
   it("rejects malformed input before lookup", async () => {
     const lookup = vi.fn();
     const result = await authenticateCustomer({ body: "{}", headers: {}, requestContext: { requestId: "corr-1" } as never }, lookup);

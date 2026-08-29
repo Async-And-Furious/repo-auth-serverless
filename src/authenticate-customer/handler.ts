@@ -45,7 +45,7 @@ export async function authenticateCustomer(
     const customer = await lookup(cpf);
     if (!customer || !customer.active) return response(401, { error: "unauthorized", message: "Invalid customer credentials" }, correlationId);
     const expiresIn = Number(process.env.JWT_EXPIRES_IN);
-    const token = signToken({ sub: String(customer.id), documento: cpf, role: "CLIENTE" }, await getPrivateKey());
+    const token = signToken({ sub: String(customer.id) }, await getPrivateKey());
     return response(200, { token, token_type: "Bearer", expires_in: expiresIn }, correlationId);
   } catch (error) {
     console.error(JSON.stringify({ level: "error", event: "authenticate_customer_failed", correlation_id: correlationId, error: error instanceof Error ? error.message : "unknown" }));
