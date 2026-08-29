@@ -15,7 +15,7 @@ on:
         description: Terraform operation (always manual)
         required: true
         type: choice
-        options: [plan, apply]
+        options: [plan, apply, destroy-plan, destroy]
       academy_mode:
         description: Use pre-existing LabRole and temporary AWS credentials
         required: true
@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       confirm:
-        description: Type "APPLY PROD" to allow a production apply
+        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
         required: false
         default: ""
         type: string
@@ -53,7 +53,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm run package
+      - if: ${{ github.event_name != 'workflow_dispatch' || !startsWith(inputs.operation, 'destroy') }}
+        run: npm run package
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~> 1.13"
@@ -104,13 +105,29 @@ jobs:
           [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
         env:
           CONFIRM: ${{ inputs.confirm }}
+      - name: Guard HML Academy destroy
+        if: startsWith(inputs.operation, 'destroy')
+        run: |
+          [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML.' >&2; exit 1; }
+          [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
+          if [ "$OPERATION" = "destroy" ]; then
+            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+          fi
+        env:
+          ACADEMY_MODE: ${{ inputs.academy_mode }}
+          CONFIRM: ${{ inputs.confirm }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          OPERATION: ${{ inputs.operation }}
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        if: ${{ !startsWith(inputs.operation, 'destroy') }}
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run package
+      - if: ${{ !startsWith(inputs.operation, 'destroy') }}
+        run: npm ci
+      - if: ${{ !startsWith(inputs.operation, 'destroy') }}
+        run: npm run package
       - name: Reject partial temporary credentials
         if: >-
           (env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '' || env.AWS_SESSION_TOKEN != '') &&
@@ -139,6 +156,7 @@ jobs:
         with:
           terraform_version: "~> 1.13"
       - name: Write Terraform variables
+        if: ${{ !startsWith(inputs.operation, 'destroy') }}
         working-directory: infra/${{ inputs.environment }}
         run: |
           python - <<'PY'
@@ -194,9 +212,33 @@ jobs:
               json.dump(variables, file)
           PY
       - name: Bootstrap Terraform state backend
+        if: ${{ !startsWith(inputs.operation, 'destroy') }}
         shell: bash
         run: bash .github/scripts/bootstrap-backend.sh repo-auth-serverless "${{ inputs.environment }}" "infra/${{ inputs.environment }}/backend.hcl"
+      - name: Read existing destroy state
+        id: destroy_state
+        if: startsWith(inputs.operation, 'destroy')
+        shell: bash
+        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless hml infra/hml/backend.hcl
+      - name: Write destroy-only Terraform placeholders
+        if: startsWith(inputs.operation, 'destroy') && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: |
+          cat > terraform.auto.tfvars.json <<'JSON'
+          {
+            "aws_region": "${{ env.AWS_REGION }}",
+            "academy_mode": true,
+            "lab_role_arn": "arn:aws:iam::000000000000:role/destroy-placeholder",
+            "auth_lambda_vpc_enabled": false,
+            "deploy_auth_only": true,
+            "jwt_private_key_secret_arn": "destroy-placeholder",
+            "jwt_public_key_parameter_name": "/destroy/placeholder",
+            "jwt_public_key_parameter_arn": "destroy-placeholder",
+            "database_secret_arn": "destroy-placeholder"
+          }
+          JSON
       - working-directory: infra/${{ inputs.environment }}
+        if: ${{ !startsWith(inputs.operation, 'destroy') || steps.destroy_state.outputs.has_state == 'true' }}
         run: terraform init -reconfigure -input=false -backend-config=backend.hcl
       - name: Terraform plan
         if: inputs.operation == 'plan'
@@ -206,7 +248,19 @@ jobs:
         if: inputs.operation == 'apply'
         working-directory: infra/${{ inputs.environment }}
         run: terraform apply -input=false -auto-approve
+      - name: Terraform destroy plan
+        if: inputs.operation == 'destroy-plan' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform plan -destroy -input=false
+      - name: Save exact Terraform destroy plan
+        if: inputs.operation == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform plan -destroy -input=false -out=destroy.tfplan
+      - name: Apply exact Terraform destroy plan
+        if: inputs.operation == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform apply -input=false destroy.tfplan
       - name: Remove generated Terraform inputs
         if: always()
         working-directory: infra/${{ inputs.environment }}
-        run: rm -f terraform.auto.tfvars.json backend.hcl
+        run: rm -f terraform.auto.tfvars.json backend.hcl destroy.tfplan
