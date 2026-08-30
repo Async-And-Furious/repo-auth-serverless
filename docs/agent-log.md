@@ -93,3 +93,14 @@
 - Split manual Terraform plan and apply into separate jobs. Apply now runs after
   validation without a plan step while retaining remote backend and Academy
   credential handling. No Terraform apply was run.
+
+## 2026-08-29 — HML/production deployment contract
+
+- HML now applies automatically from `develop`; production remains a manual
+  protected-Environment apply with an explicit confirmation guard.
+- Added credential and Terraform state preflight checks, production Academy
+  rejection, and a protected apply job that downloads and applies the exact
+  uploaded plan artifact.
+- Added security-contract coverage for active-customer RS256 issuance and
+  authorizer decisions, plus correlation-safe structured success/error logs.
+- Validation was run locally; no AWS command, Terraform apply, or destroy was run.

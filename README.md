@@ -32,9 +32,10 @@ Configure the selected GitHub Environment (`hml` or `prod`) with these secrets:
 
 - Normal mode: `AWS_ROLE_ARN`, `JWT_PRIVATE_KEY_SECRET_ARN`, and
   `DATABASE_SECRET_ARN`.
-- AWS Academy mode: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+- AWS Academy mode (HML only): `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
   `AWS_SESSION_TOKEN` (temporary credentials). Select `academy_mode=true` in
-  the manual workflow dispatch; this disables the OIDC path.
+  the manual HML workflow dispatch; production rejects Academy mode and
+  temporary credentials.
 
 The manual dispatch also exposes `deploy_auth_only`, which defaults to `false`.
 The workflow exports `TF_VAR_deploy_auth_only` as `true` only when this input is
@@ -56,7 +57,6 @@ execution role as a non-secret environment variable:
 
 ```bash
 gh variable set LAB_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-gh variable set LAB_ROLE_ARN --env prod --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
 ```
 
 In Academy mode, Terraform creates no IAM roles, role attachments, or inline
@@ -80,8 +80,8 @@ gh secret set AWS_SECRET_ACCESS_KEY --env hml < secret-access-key.txt
 gh secret set AWS_SESSION_TOKEN --env hml < session-token.txt
 ```
 
-Repeat with `--env prod` when needed. Remove the three environment secrets after
-the session expires to return to OIDC:
+Remove the three HML environment secrets after the session expires to return to
+OIDC:
 
 ```bash
 gh secret delete AWS_ACCESS_KEY_ID --env hml
@@ -101,7 +101,8 @@ S3 bucket `tc3-tfstate-<account-id>` at
 Normal `plan` and `apply` operations bootstrap that bucket before initialization.
 
 Manual `destroy-plan` and `destroy` operations are intentionally limited to
-`environment=hml` and `academy_mode=true`; production destroy is rejected.
+`environment=hml` and `academy_mode=true`; production Academy mode and destroy
+are rejected.
 `destroy` additionally requires the exact confirmation `DESTROY HML`.
 The destroy preflight only reads the current account's existing bucket and
 state. A missing bucket, missing key, zero-byte object, or state with no managed
