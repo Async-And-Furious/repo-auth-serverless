@@ -4,9 +4,14 @@ const pg = vi.hoisted(() => ({
   Pool: vi.fn(),
   query: vi.fn(),
 }));
+const secrets = vi.hoisted(() => ({ send: vi.fn() }));
 
 vi.mock("pg", () => ({
   default: { Pool: pg.Pool },
+}));
+vi.mock("@aws-sdk/client-secrets-manager", () => ({
+  SecretsManagerClient: vi.fn(() => secrets),
+  GetSecretValueCommand: vi.fn((input) => input),
 }));
 
 import { CUSTOMER_LOOKUP_QUERY, findCustomer } from "./customer-repository.js";
@@ -17,6 +22,7 @@ describe("findCustomer", () => {
     pg.Pool.mockClear();
     pg.Pool.mockReturnValue({ query: pg.query, end: vi.fn().mockResolvedValue(undefined) });
     pg.query.mockReset();
+    secrets.send.mockReset();
   });
 
   it("queries the CPF schema contract and preserves customer status", async () => {
@@ -45,5 +51,28 @@ WHERE "documento" = $1
     await expect(findCustomer("52998224725")).rejects.toThrow("database unavailable");
     await expect(findCustomer("52998224725")).resolves.toBeNull();
     expect(pg.Pool).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires TLS for the connection details fallback", async () => {
+    vi.resetModules();
+    delete process.env.DATABASE_URL;
+    process.env.DATABASE_SECRET_ARN = "arn:aws:secretsmanager:test";
+    secrets.send.mockResolvedValueOnce({
+      SecretString: JSON.stringify({
+        host: "database.example",
+        username: "user",
+        password: "password",
+        dbname: "app",
+      }),
+    });
+    pg.query.mockResolvedValueOnce({ rows: [] });
+
+    const { findCustomer: findCustomerWithFallback } = await import("./customer-repository.js");
+    await expect(findCustomerWithFallback("52998224725")).resolves.toBeNull();
+
+    expect(pg.Pool).toHaveBeenCalledWith({
+      connectionString: "postgresql://user:password@database.example:5432/app?sslmode=require",
+      max: 2,
+    });
   });
 });

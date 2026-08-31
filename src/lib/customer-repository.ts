@@ -25,7 +25,7 @@ async function connectionString(): Promise<string> {
   if (typeof value.host !== "string" || typeof value.username !== "string" || typeof value.password !== "string") {
     throw new Error("database secret has no connection details");
   }
-  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${value.host}:${String(value.port ?? 5432)}/${String(value.dbname ?? value.database ?? "postgres")}`;
+  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${value.host}:${String(value.port ?? 5432)}/${String(value.dbname ?? value.database ?? "postgres")}?sslmode=require`;
 }
 
 export async function findCustomer(cpf: string): Promise<Customer | null> {

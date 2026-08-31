@@ -11,9 +11,10 @@ describe("CPF authentication", () => {
     process.env.JWT_AUDIENCE = "test-audience";
     process.env.JWT_EXPIRES_IN = "1800";
     const result = await authenticateCustomer({ body: JSON.stringify({ cpf: "529.982.247-25" }), headers: {}, requestContext: { requestId: "corr-success" } as never }, async () => ({ id: "c-1", active: true }), async () => privateKey);
-    const body = JSON.parse(result.body) as { token: string };
+    const body = JSON.parse(result.body) as { token: string; algorithm: string; expires_in: number; issuer: string; audience: string; subject_claim: string };
     expect(result.statusCode).toBe(200);
     expect(jwt.verify(body.token, privateKey, { algorithms: ["RS256"], issuer: "test-issuer", audience: "test-audience" })).toMatchObject({ sub: "c-1", iss: "test-issuer", aud: "test-audience" });
+    expect(body).toMatchObject({ algorithm: "RS256", expires_in: 1800, issuer: "test-issuer", audience: "test-audience", subject_claim: "Cliente.id" });
   });
   it("rejects invalid CPF", () => expect(normalizeCpf("52998224724")).toBeNull());
   it("rejects an inactive customer without issuing a token", async () => {

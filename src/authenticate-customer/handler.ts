@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { getPrivateKey } from "../lib/keys.js";
-import { signToken } from "../lib/jwt.js";
+import { jwtContract, signToken } from "../lib/jwt.js";
 import { findCustomer, type CustomerLookup } from "../lib/customer-repository.js";
 
 export function normalizeCpf(value: unknown): string | null {
@@ -54,9 +54,17 @@ export async function authenticateCustomer(
     if (!cpf) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
     const customer = await lookup(cpf);
     if (!customer || !customer.active) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
-    const expiresIn = Number(process.env.JWT_EXPIRES_IN);
+    const contract = jwtContract();
     const token = signToken({ sub: String(customer.id) }, await privateKeyProvider());
-    return complete(200, { token, token_type: "Bearer", expires_in: expiresIn });
+    return complete(200, {
+      token,
+      token_type: "Bearer",
+      expires_in: contract.expiresIn,
+      algorithm: contract.algorithm,
+      issuer: contract.issuer,
+      audience: contract.audience,
+      subject_claim: contract.subject,
+    });
   } catch {
     log("error", "authenticate_customer_failed", correlationId, startedAt);
     return response(500, { error: "internal_error", message: "Unable to authenticate" }, correlationId);

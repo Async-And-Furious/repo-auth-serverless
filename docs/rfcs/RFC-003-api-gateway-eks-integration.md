@@ -2,9 +2,9 @@
 
 - **Status**: Accepted
 - **Date**: 2026-07-29
-- **Source of truth**: this file, in `async-furious-project`. Copies exist in
+- **Source of truth**: the approved workspace contract. This implementation
   `repo-auth-serverless` and `repo-k8s-infra` for local visibility — update
-  here first, then sync.
+  copy records the auth repository side of the decision.
 
 ## Context
 
@@ -19,8 +19,9 @@ resources could be implemented for real.
 1. **Ownership**: `repo-auth-serverless` owns the API Gateway resource,
    routes (`/auth`, protected routes), and the Lambda Authorizer
    association. `repo-k8s-infra` owns only the private integration target
-   (internal ALB) and exposes its listener ARN as a Terraform output for
-   `repo-auth-serverless` to consume.
+   (internal ALB). Its listener ARN is an externally supplied deployment input
+   when available; this repository does not assume an unsupported
+   cross-repository output or remote-state mechanism.
 2. **Integration**: HTTP API (not REST API) with a VPC Link to an internal
    Application Load Balancer in the EKS VPC, using `HTTP_PROXY` integration.
 
@@ -41,10 +42,9 @@ resources could be implemented for real.
 
 ## Consequences
 
-- `repo-k8s-infra` must provision an internal ALB (via AWS Load Balancer
-  Controller / Ingress) and output its listener ARN. The
-  `backend_integration_uri` input in this repository carries that ARN; this
-  document records the contract, not runtime deployment evidence.
+- The `backend_integration_uri` input carries an approved internal ALB/NLB
+  listener ARN when available. This document records the contract, not runtime
+  deployment evidence; no direct-ALB exposure is implied.
 - `repo-auth-serverless` must provision the HTTP API, routes, VPC Link, and
   Lambda Authorizer, consuming the ALB output from `repo-k8s-infra`.
 - Future microservice split: add Kubernetes Ingress rules + Gateway routes

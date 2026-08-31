@@ -19,6 +19,10 @@ describe("extractBearerToken", () => {
   it("returns null when the header has no token", () => {
     expect(extractBearerToken("Bearer")).toBeNull();
   });
+
+  it("rejects headers containing more than one token", () => {
+    expect(extractBearerToken("Bearer abc extra")).toBeNull();
+  });
 });
 
 describe("authorizer decisions", () => {
