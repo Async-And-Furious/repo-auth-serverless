@@ -1,6 +1,16 @@
 import jwt from "jsonwebtoken";
 
-const ALGORITHM = "RS256";
+export const JWT_ALGORITHM = "RS256" as const;
+export const JWT_EXPIRES_IN_SECONDS = 1800;
+
+/** Contract consumed by the monolith when verifying an authentication token. */
+export interface JwtContract {
+  algorithm: typeof JWT_ALGORITHM;
+  issuer: string;
+  audience: string;
+  expiresIn: typeof JWT_EXPIRES_IN_SECONDS;
+  subject: "Cliente.id";
+}
 
 export interface JwtClaims {
   sub: string;
@@ -13,23 +23,26 @@ interface VerifiedJwtClaims extends JwtClaims {
   aud: string;
 }
 
-function configuration(): { issuer: string; audience: string; expiresIn: number } {
+export function jwtContract(): JwtContract {
   const issuer = process.env.JWT_ISSUER?.trim();
   const audience = process.env.JWT_AUDIENCE?.trim();
   const expiresIn = Number(process.env.JWT_EXPIRES_IN);
-  if (!issuer || !audience || expiresIn !== 1800) {
+  if (!issuer || !audience || expiresIn !== JWT_EXPIRES_IN_SECONDS) {
     throw new Error("JWT_ISSUER, JWT_AUDIENCE, and JWT_EXPIRES_IN=1800 are required");
   }
-  return { issuer, audience, expiresIn };
+  return { algorithm: JWT_ALGORITHM, issuer, audience, expiresIn, subject: "Cliente.id" };
 }
 
 export function signToken(
   claims: JwtClaims,
   privateKey: string,
 ): string {
-  const config = configuration();
+  const config = jwtContract();
+  if (typeof claims.sub !== "string" || claims.sub.trim() === "") {
+    throw new Error("JWT subject must be the non-empty Cliente.id customer identity");
+  }
   return jwt.sign(claims, privateKey, {
-    algorithm: ALGORITHM,
+    algorithm: JWT_ALGORITHM,
     expiresIn: config.expiresIn,
     issuer: config.issuer,
     audience: config.audience,
@@ -37,9 +50,9 @@ export function signToken(
 }
 
 export function verifyToken(token: string, publicKey: string): VerifiedJwtClaims {
-  const config = configuration();
+  const config = jwtContract();
   const decoded = jwt.verify(token, publicKey, {
-    algorithms: [ALGORITHM],
+    algorithms: [JWT_ALGORITHM],
     issuer: config.issuer,
     audience: config.audience,
   });

@@ -4,9 +4,8 @@
 
 Accepted — 2026-07-30
 
-**Source of truth**: this file lives in `async-furious-project`. This is a
-copy for local visibility since `repo-auth-serverless` implements it —
-update the source first, then sync.
+**Source of truth**: the approved workspace authentication contract. This
+repository copy records the implementation decision and its runtime inputs.
 
 ## Context
 
@@ -16,10 +15,9 @@ HANDOFF.md decision list (§20) leaves three related items open:
 - #7 — JWT signature: symmetric vs. asymmetric.
 - #8 — token duration and claims.
 
-`repo-auth-serverless`'s two Lambda handlers (`authenticate-customer`,
-`authorize-request`) are still `501`/`isAuthorized: false` stubs pending
-this decision. `repo-db-infra`'s RDS module also deferred "how the Lambda
-authenticates to read secrets at runtime" to this RFC.
+`repo-auth-serverless` implements both Lambda handlers and their runtime secret
+references. `repo-db-infra`'s RDS module provides the database secret reference;
+the auth repository retrieves the value at runtime.
 
 This also has to account for the same forward-looking constraint as
 RFC-003: the monolith in `repo-application` will eventually split into
@@ -50,8 +48,12 @@ keeps full control over custom claim validation.
 - With HS256 every verifier needs the same shared secret, which gets
   harder to scope correctly as more services need to verify tokens.
 
-**Token**: 30 minute expiry, minimal claims — `sub` (customer id), `iat`,
-`exp`, `iss` (`repo-auth-serverless`). No raw CPF in the payload.
+**Token contract**: RS256, 30 minute (`1800` second) expiry, and minimal claims
+— `sub` (the string `Cliente.id` customer identity), `iat`, `exp`, `iss`
+(`repo-auth-serverless`), and audience (`async-furious-project`). No raw CPF in
+the payload. The `/auth` response and both Terraform roots expose the same
+algorithm, issuer, audience, expiry, and `Cliente.id` subject semantics for the
+monolith consumer.
 
 ## Key storage
 
@@ -67,12 +69,10 @@ keeps full control over custom claim validation.
 
 - `authorize-request` fetches the public key from SSM and verifies
   RS256 signatures — no dependency on `repo-db-infra` or any other repo.
-- `authenticate-customer`'s JWT *issuance* step (once implemented) fetches
+- `authenticate-customer`'s JWT issuance step fetches
   the private key from Secrets Manager and signs with RS256.
-- The CPF-validation-against-customer-record part of
-  `authenticate-customer` is explicitly out of scope for this RFC — it
-  depends on HANDOFF.md decision #11 (Lambda direct-to-RDS vs. RDS Proxy)
-  and the customer data contract, both still open.
+- `authenticate-customer` validates CPF and performs the active-customer
+  lookup using the shared `Cliente` schema contract before issuing a token.
 - Resolves HANDOFF.md decisions #2, #7, #8.
 
 ## Alternatives considered

@@ -11,15 +11,29 @@ Out of scope: monolith code, EKS provisioning, RDS provisioning, business schema
 
 Authentication validates CPF check digits, requires an active customer, and
 returns a generic unauthorized response for invalid or unknown credentials.
-JWTs use strict RS256 algorithm, issuer, audience, and expiry configuration.
+JWTs use strict RS256 and a 30-minute (`1800` second) expiry. The emitted
+contract is explicit in the authentication response and Terraform outputs:
+`algorithm=RS256`, `issuer` from `JWT_ISSUER` (the roots enforce
+`repo-auth-serverless`), `audience` from `JWT_AUDIENCE` (the roots enforce
+`async-furious-project`), and `subject_claim=Cliente.id`. The JWT `sub` is the
+customer's `Cliente.id` string, never the CPF; the monolith must resolve that
+identity and re-check active status. Verifiers must enforce RS256, issuer,
+audience, and `exp`.
 Correlation IDs are returned and propagated to protected backend requests.
+
+Each environment provisions native CloudWatch alarms for authentication and
+authorizer Lambda errors plus HTTP API `5XXError` metrics for `/auth` and, when
+configured, the protected VPC Link route. Alarms are created without a
+notification dependency so an account can attach its approved actions later.
 
 ## Status
 
-HML and production Terraform lanes are available through the manual
-`workflow_dispatch` inputs in `.github/workflows/ci.yml`. CI builds, tests, and
-uploads `dist.zip`; no environment is applied automatically, including
-production. GitHub Environments must provide the approval gate for each lane.
+HML applies automatically from `develop`; pushes to `main` apply production
+after the protected `production` Environment approval. Manual applies remain
+available through `workflow_dispatch` and require the exact production
+confirmation `APPLY PROD`. CI builds, tests, packages, and includes the exact
+`dist.zip` in the saved Terraform plan artifact; apply downloads that same
+artifact before applying.
 
 ## Packaging and deployment
 
@@ -28,13 +42,16 @@ Run `npm run package` locally to compile the handlers and create a deterministic
 package command and artifact for a manually selected `plan` or `apply` in
 `hml` or `prod`.
 
-Configure the selected GitHub Environment (`hml` or `prod`) with these secrets:
+Configure the GitHub Environments `hml` and `production` with these secrets:
 
-- Normal mode: `AWS_ROLE_ARN`, `JWT_PRIVATE_KEY_SECRET_ARN`, and
-  `DATABASE_SECRET_ARN`.
-- AWS Academy mode: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-  `AWS_SESSION_TOKEN` (temporary credentials). Select `academy_mode=true` in
-  the manual workflow dispatch; this disables the OIDC path.
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
+  (temporary AWS Academy credentials).
+- `JWT_PRIVATE_KEY_SECRET_ARN` and `DATABASE_SECRET_ARN`.
+
+The workflow always uses the Academy credential model for both logical
+environments: pushes to `develop` deploy HML automatically, while production
+uses the protected `production` Environment approval. Manual runs select
+`hml` or `prod` and an operation; there is no Academy-mode toggle.
 
 The manual dispatch also exposes `deploy_auth_only`, which defaults to `false`.
 The workflow exports `TF_VAR_deploy_auth_only` as `true` only when this input is
@@ -42,8 +59,7 @@ explicitly enabled and `BACKEND_INTEGRATION_URI` is empty. A configured backend
 URI always selects the full deployment path, even if the input is accidentally
 set to `true`.
 
-The OIDC role must be trusted by GitHub Actions. Required non-secret Actions
-variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
+Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
 `JWT_PUBLIC_KEY_PARAMETER_ARN`, `DATABASE_SUBNET_IDS`, and
 `DATABASE_SECURITY_GROUP_IDS`. Optional variables are
 `AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
@@ -51,23 +67,18 @@ variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
 `VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
 `["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
 
-For AWS Academy/Lab, select `academy_mode=true` and set the existing Lambda
-execution role as a non-secret environment variable:
+For AWS Academy/Lab, set the existing Lambda execution role as a non-secret
+environment variable:
 
 ```bash
 gh variable set LAB_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-gh variable set LAB_ROLE_ARN --env prod --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
 ```
 
-In Academy mode, Terraform creates no IAM roles, role attachments, or inline
+The Academy configuration creates no IAM roles, role attachments, or inline
 policies and uses `LAB_ROLE_ARN` for both Lambdas. The existing role must trust Lambda and already
 permit the function's CloudWatch, Secrets Manager, VPC, and/or SSM access;
 AWS Academy `LabRole` permissions are account-limited and may not support every
 resource configuration.
-
-Normal mode may still use `AUTH_LAMBDA_ROLE_ARN` and
-`AUTHORIZER_LAMBDA_ROLE_ARN` to supply separate pre-existing roles; otherwise
-Terraform creates them.
 
 ### Rotate AWS Academy credentials with `gh`
 
@@ -80,13 +91,15 @@ gh secret set AWS_SECRET_ACCESS_KEY --env hml < secret-access-key.txt
 gh secret set AWS_SESSION_TOKEN --env hml < session-token.txt
 ```
 
-Repeat with `--env prod` when needed. Remove the three environment secrets after
-the session expires to return to OIDC:
+Remove the environment secrets after the session expires:
 
 ```bash
 gh secret delete AWS_ACCESS_KEY_ID --env hml
 gh secret delete AWS_SECRET_ACCESS_KEY --env hml
 gh secret delete AWS_SESSION_TOKEN --env hml
+gh secret delete AWS_ACCESS_KEY_ID --env production
+gh secret delete AWS_SECRET_ACCESS_KEY --env production
+gh secret delete AWS_SESSION_TOKEN --env production
 ```
 
 Use `-R OWNER/REPOSITORY` with these commands when running them outside the
@@ -101,7 +114,7 @@ S3 bucket `tc3-tfstate-<account-id>` at
 Normal `plan` and `apply` operations bootstrap that bucket before initialization.
 
 Manual `destroy-plan` and `destroy` operations are intentionally limited to
-`environment=hml` and `academy_mode=true`; production destroy is rejected.
+`environment=hml`; production destroy is rejected.
 `destroy` additionally requires the exact confirmation `DESTROY HML`.
 The destroy preflight only reads the current account's existing bucket and
 state. A missing bucket, missing key, zero-byte object, or state with no managed
@@ -141,6 +154,10 @@ npm test
 ```
 
 JWT signing and API Gateway ownership follow accepted RFC-003 and RFC-006.
+Terraform also exposes environment-scoped API Gateway outputs: API id and
+endpoint, `/auth` route key, authorizer id, and protected route, integration,
+VPC Link, and backend URI values when full integration is enabled. No
+unsupported remote-state or cross-repository automation is assumed.
 Customer lookup uses the fixed cross-repository schema contract:
 
 ```sql

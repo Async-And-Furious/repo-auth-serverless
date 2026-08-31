@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { getPrivateKey } from "../lib/keys.js";
-import { signToken } from "../lib/jwt.js";
+import { jwtContract, signToken } from "../lib/jwt.js";
 import { findCustomer, type CustomerLookup } from "../lib/customer-repository.js";
 
 export function normalizeCpf(value: unknown): string | null {
@@ -23,32 +23,50 @@ function response(statusCode: number, body: Record<string, unknown>, correlation
   return { statusCode, headers: { "content-type": "application/json", "x-correlation-id": correlationId }, body: JSON.stringify(body) };
 }
 
+function log(level: "info" | "error", event: string, correlationId: string, startedAt: number): void {
+  console.log(JSON.stringify({ level, event, correlation_id: correlationId, duration_ms: Date.now() - startedAt }));
+}
+
 export async function authenticateCustomer(
   event: Pick<APIGatewayProxyEvent, "body" | "headers" | "requestContext">,
   lookup: CustomerLookup = findCustomer,
+  privateKeyProvider: typeof getPrivateKey = getPrivateKey,
 ): Promise<APIGatewayProxyResult> {
+  const startedAt = Date.now();
   const correlationId = (event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"])?.trim() || event.requestContext.requestId || crypto.randomUUID();
+  const complete = (statusCode: number, body: Record<string, unknown>) => {
+    log(statusCode >= 500 ? "error" : "info", statusCode >= 400 ? "authenticate_customer_rejected" : "authenticate_customer_succeeded", correlationId, startedAt);
+    return response(statusCode, body, correlationId);
+  };
   try {
     let input: unknown;
     try {
       input = event.body ? JSON.parse(event.body) : {};
     } catch {
-      return response(400, { error: "invalid_request", message: "Request body must be valid JSON" }, correlationId);
+      return complete(400, { error: "invalid_request", message: "Request body must be valid JSON" });
     }
     if (input === null || typeof input !== "object" || Array.isArray(input)) {
-      return response(400, { error: "invalid_request", message: "A valid CPF is required" }, correlationId);
+      return complete(400, { error: "invalid_request", message: "A valid CPF is required" });
     }
     const cpfValue = (input as { cpf?: unknown }).cpf;
-    if (typeof cpfValue !== "string") return response(400, { error: "invalid_request", message: "A valid CPF is required" }, correlationId);
+    if (typeof cpfValue !== "string") return complete(400, { error: "invalid_request", message: "A valid CPF is required" });
     const cpf = normalizeCpf(cpfValue);
-    if (!cpf) return response(401, { error: "unauthorized", message: "Invalid customer credentials" }, correlationId);
+    if (!cpf) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
     const customer = await lookup(cpf);
-    if (!customer || !customer.active) return response(401, { error: "unauthorized", message: "Invalid customer credentials" }, correlationId);
-    const expiresIn = Number(process.env.JWT_EXPIRES_IN);
-    const token = signToken({ sub: String(customer.id) }, await getPrivateKey());
-    return response(200, { token, token_type: "Bearer", expires_in: expiresIn }, correlationId);
-  } catch (error) {
-    console.error(JSON.stringify({ level: "error", event: "authenticate_customer_failed", correlation_id: correlationId, error: error instanceof Error ? error.message : "unknown" }));
+    if (!customer || !customer.active) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
+    const contract = jwtContract();
+    const token = signToken({ sub: String(customer.id) }, await privateKeyProvider());
+    return complete(200, {
+      token,
+      token_type: "Bearer",
+      expires_in: contract.expiresIn,
+      algorithm: contract.algorithm,
+      issuer: contract.issuer,
+      audience: contract.audience,
+      subject_claim: contract.subject,
+    });
+  } catch {
+    log("error", "authenticate_customer_failed", correlationId, startedAt);
     return response(500, { error: "internal_error", message: "Unable to authenticate" }, correlationId);
   }
 }

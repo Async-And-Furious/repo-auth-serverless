@@ -17,5 +17,8 @@ The canonical, current documents live in the workspace root:
 Short version for this repository: Terraform state is S3 at
 `tc3-tfstate-<account-id>` with S3 native locking, bootstrapped by
 `.github/scripts/bootstrap-backend.sh` inside the workflow. Nothing about the
-state backend is provisioned by hand. Credentials are the AWS Academy session
-values, rotated into repository-scoped secrets at the start of each lab session.
+state backend is provisioned by hand. The same AWS Academy session values may
+be rotated into the `hml` and protected `production` GitHub Environments at the
+start of each lab session. `develop` applies HML automatically; `main` applies
+production only after the protected Environment approval. Destructive actions
+remain manual and HML-only.

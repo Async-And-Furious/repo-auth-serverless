@@ -11,7 +11,7 @@ variable "jwt_public_key_parameter_name" { type = string }
 variable "jwt_public_key_parameter_arn" { type = string }
 variable "database_secret_arn" { type = string }
 variable "academy_mode" {
-  description = "Use the pre-existing AWS Academy LabRole and do not create IAM roles or policies."
+  description = "Use the pre-existing AWS Academy LabRole and temporary credentials."
   type        = bool
   default     = false
 }

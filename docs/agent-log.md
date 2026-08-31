@@ -1,5 +1,48 @@
 # Agent log
 
+## 2026-08-31 — Academy workflow and exact Lambda artifact
+
+- Updated documentation and workflow-contract coverage for the always-Academy
+  HML/production workflow and its actual credential references.
+- Included `dist.zip` with the saved Terraform plan artifact and download it at
+  the repository root before applying the exact plan.
+- No AWS action, commit, or push was performed.
+
+## 2026-08-31 — RDS TLS connection contract
+
+- Added `sslmode=require` to the Lambda's Secrets Manager connection-details
+  fallback, matching the RDS `force_ssl=1` deployment contract.
+- Added focused coverage for the fallback while preserving existing secret
+  loading and explicit `DATABASE_URL` behavior. No AWS action was run.
+
+## 2026-08-31 — Production push guard and route observability
+
+- Limited the production confirmation check to manual dispatches so automatic
+  `main` pushes can deploy after the protected `production` Environment gate;
+  manual production apply still requires `APPLY PROD`.
+- Added native CloudWatch Lambda error and API Gateway route 5xx alarms to both
+  Terraform environments, including the optional VPC Link route.
+- No commit, push, AWS apply, or destroy was performed.
+
+## 2026-08-30 — Explicit JWT consumer contract
+
+- Added code-level JWT contract metadata and subject validation. `/auth` now
+  emits algorithm, issuer, audience, expiry, and `Cliente.id` subject semantics;
+  HML/production Terraform outputs expose the same contract.
+- Added contract and subject tests. No AWS apply/destroy, commit, or push was
+  performed.
+
+## 2026-08-30 — Confirmed auth delivery target
+
+- Updated the auth workflow so the same temporary AWS Academy credentials can
+  serve HML and production, with separate environment state/config/artifacts.
+- Preserved automatic `develop` HML delivery, protected `main` production
+  approval, and manual HML-only destructive operations.
+- Reconciled API Gateway route/integration outputs and refreshed stale RFC and
+  AWS setup documentation without adding unsupported cross-repository wiring.
+- Added workflow and malformed-Bearer tests. No AWS apply/destroy, commit, or
+  push was performed.
+
 ## 2026-08-10
 
 - Implemented CPF validation, PostgreSQL customer lookup, active-status check,
@@ -93,3 +136,14 @@
 - Split manual Terraform plan and apply into separate jobs. Apply now runs after
   validation without a plan step while retaining remote backend and Academy
   credential handling. No Terraform apply was run.
+
+## 2026-08-29 — HML/production deployment contract
+
+- HML now applies automatically from `develop`; production remains a manual
+  protected-Environment apply with an explicit confirmation guard.
+- Added credential and Terraform state preflight checks, production Academy
+  rejection, and a protected apply job that downloads and applies the exact
+  uploaded plan artifact.
+- Added security-contract coverage for active-customer RS256 issuance and
+  authorizer decisions, plus correlation-safe structured success/error logs.
+- Validation was run locally; no AWS command, Terraform apply, or destroy was run.

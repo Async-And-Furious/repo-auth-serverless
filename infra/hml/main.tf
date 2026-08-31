@@ -163,3 +163,64 @@ resource "aws_lambda_permission" "api_authorizer" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
+
+resource "aws_cloudwatch_metric_alarm" "auth_errors" {
+  alarm_name          = "${var.name_prefix}-auth-errors"
+  alarm_description   = "Authentication Lambda errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = []
+  dimensions          = { FunctionName = aws_lambda_function.auth.function_name }
+}
+
+resource "aws_cloudwatch_metric_alarm" "authorizer_errors" {
+  alarm_name          = "${var.name_prefix}-authorizer-errors"
+  alarm_description   = "Authorizer Lambda errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = []
+  dimensions          = { FunctionName = aws_lambda_function.authorizer.function_name }
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_auth_5xx" {
+  alarm_name          = "${var.name_prefix}-api-auth-5xx"
+  alarm_description   = "HTTP API authentication route server errors"
+  namespace           = "AWS/ApiGateway"
+  metric_name         = "5XXError"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = []
+  dimensions          = { ApiId = aws_apigatewayv2_api.http.id, Stage = aws_apigatewayv2_stage.default.name, Route = "POST /auth" }
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_protected_5xx" {
+  count               = local.backend_enabled ? 1 : 0
+  alarm_name          = "${var.name_prefix}-api-protected-5xx"
+  alarm_description   = "HTTP API protected route server errors"
+  namespace           = "AWS/ApiGateway"
+  metric_name         = "5XXError"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = []
+  dimensions          = { ApiId = aws_apigatewayv2_api.http.id, Stage = aws_apigatewayv2_stage.default.name, Route = "ANY /{proxy+}" }
+}
