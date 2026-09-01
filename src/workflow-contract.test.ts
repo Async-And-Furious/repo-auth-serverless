@@ -21,7 +21,7 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("options: [plan, apply, destroy-plan, destroy]");
     expect(workflow).toContain('[ "$ENVIRONMENT" = "hml" ]');
     expect(workflow).toContain('[ "$ACADEMY_MODE" = "true" ]');
-    expect(workflow).toContain('TFVARS_ACADEMY_MODE: "true"');
+    expect(workflow).toContain('TFVARS_ACADEMY_MODE: "false"');
   });
 
   it("ships the exact package used by the saved plan", () => {
