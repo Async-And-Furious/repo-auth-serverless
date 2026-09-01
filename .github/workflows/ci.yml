@@ -68,7 +68,7 @@ jobs:
     permissions:
       contents: read
     env:
-      DEPLOY_ACADEMY_MODE: "true"
+      DEPLOY_ACADEMY_MODE: "false"
       DEPLOY_ENVIRONMENT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }}
       DEPLOY_OPERATION: ${{ github.event_name == 'push' && 'apply' || inputs.operation }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -84,7 +84,7 @@ jobs:
       TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE || 'async-furious-project' }}
       TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
       TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
-      TFVARS_ACADEMY_MODE: "true"
+      TFVARS_ACADEMY_MODE: "false"
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
@@ -98,12 +98,6 @@ jobs:
       TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
       TF_INPUT: "false"
     steps:
-      - name: Credential preflight
-        env:
-          ACADEMY_MODE: ${{ env.DEPLOY_ACADEMY_MODE }}
-        run: |
-          set -euo pipefail
-          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN" || { echo 'Both HML and production require complete temporary AWS Academy credentials.' >&2; exit 1; }
       - name: Guard production apply
         if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && github.event_name == 'workflow_dispatch'
         run: |
@@ -134,12 +128,7 @@ jobs:
         run: npm ci
       - if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         run: npm run package
-      - name: Reject partial temporary credentials
-        if: >-
-          (env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '' || env.AWS_SESSION_TOKEN != '') &&
-          !(env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.AWS_SESSION_TOKEN != '')
-        run: exit 1
-      - name: Configure AWS Academy credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
@@ -285,7 +274,7 @@ jobs:
       contents: read
     env:
       DEPLOY_ENVIRONMENT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }}
-      DEPLOY_ACADEMY_MODE: "true"
+      DEPLOY_ACADEMY_MODE: "false"
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -296,15 +285,7 @@ jobs:
         with:
           name: terraform-plan-${{ env.DEPLOY_ENVIRONMENT }}-${{ github.run_id }}
           path: .
-      - name: Reject partial temporary credentials
-        if: >-
-          (env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '' || env.AWS_SESSION_TOKEN != '') &&
-          !(env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.AWS_SESSION_TOKEN != '')
-        run: exit 1
-      - name: Validate AWS Academy credentials
-        run: |
-          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" && test -n "$AWS_SESSION_TOKEN" || { echo 'Both HML and production require complete temporary AWS Academy credentials.' >&2; exit 1; }
-      - name: Configure AWS Academy credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
