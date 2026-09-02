@@ -1,6 +1,25 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Terraform environment
+        required: true
+        type: string
+      operation:
+        description: Terraform operation (always manual)
+        required: true
+        type: string
+      deploy_auth_only:
+        description: Deploy only authentication resources (ignored when backend integration is configured)
+        required: true
+        type: boolean
+      confirm:
+        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        required: false
+        default: ""
+        type: string
   pull_request:
   push:
     branches: [main, develop]
@@ -31,7 +50,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: auth-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref }}
+  group: auth-${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.environment || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -48,7 +67,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - if: ${{ github.event_name != 'workflow_dispatch' || !startsWith(inputs.operation, 'destroy') }}
+      - if: ${{ (github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || !startsWith(inputs.operation, 'destroy') }}
         run: npm run package
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -61,7 +80,7 @@ jobs:
 
   terraform_plan:
     name: Terraform plan (${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }})
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
     needs: validate
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || github.event_name == 'push' && 'hml' || inputs.environment == 'prod' && 'production' || inputs.environment }}
@@ -99,7 +118,7 @@ jobs:
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
-        if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && github.event_name == 'workflow_dispatch'
+        if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
         run: |
           [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
         env:
@@ -264,7 +283,7 @@ jobs:
 
   terraform_apply:
     name: Terraform apply (${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }})
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'apply')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.operation == 'apply')
     needs: terraform_plan
     runs-on: ubuntu-latest
     # Configure required reviewers on the prod GitHub Environment. This is the
@@ -299,7 +318,7 @@ jobs:
         working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform init -reconfigure -input=false -backend-config=backend.hcl
       - name: Guard production apply confirmation
-        if: env.DEPLOY_ENVIRONMENT == 'prod' && github.event_name == 'workflow_dispatch'
+        if: env.DEPLOY_ENVIRONMENT == 'prod' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
         env:
           CONFIRM: ${{ inputs.confirm }}
         run: |

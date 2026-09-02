@@ -1,0 +1,17 @@
+name: Up HML
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-hml:
+    name: Deploy HML authentication
+    uses: ./.github/workflows/ci.yml
+    with:
+      environment: hml
+      operation: apply
+      deploy_auth_only: false
+    secrets: inherit
