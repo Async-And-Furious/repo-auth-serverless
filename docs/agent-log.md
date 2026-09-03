@@ -1,5 +1,13 @@
 # Agent log
 
+## 2026-09-02 — Standard IAM HML destroy workflow
+
+- Allowed confirmed HML destroys with standard IAM credentials without requiring
+  Academy mode or an AWS session token, while retaining production guards.
+- Declared the standard IAM key pair as required and session/JWT/database values
+  as optional so the `up` and `down` callers inherit only what each operation needs.
+- No AWS action, commit, push, apply, or destroy was performed.
+
 ## 2026-08-31 — Academy workflow and exact Lambda artifact
 
 - Updated documentation and workflow-contract coverage for the always-Academy
