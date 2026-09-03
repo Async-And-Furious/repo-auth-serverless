@@ -10,6 +10,8 @@ jobs:
   deploy-hml:
     name: Deploy HML authentication
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
     with:
       environment: hml
       operation: apply

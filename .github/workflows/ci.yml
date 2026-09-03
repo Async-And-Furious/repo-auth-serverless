@@ -20,6 +20,17 @@ on:
         required: false
         default: ""
         type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: false
+      JWT_PRIVATE_KEY_SECRET_ARN:
+        required: false
+      DATABASE_SECRET_ARN:
+        required: false
   pull_request:
   push:
     branches: [main, develop]
@@ -123,17 +134,15 @@ jobs:
           [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
         env:
           CONFIRM: ${{ inputs.confirm }}
-      - name: Guard HML Academy destroy
+      - name: Guard HML destroy
         if: startsWith(env.DEPLOY_OPERATION, 'destroy')
         run: |
           [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML.' >&2; exit 1; }
-          [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
           if [ "$OPERATION" = "destroy" ]; then
             [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
           fi
         env:
           DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
-          ACADEMY_MODE: ${{ env.DEPLOY_ACADEMY_MODE }}
           CONFIRM: ${{ inputs.confirm }}
           ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
           OPERATION: ${{ env.DEPLOY_OPERATION }}
