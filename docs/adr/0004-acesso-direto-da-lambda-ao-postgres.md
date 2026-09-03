@@ -2,24 +2,46 @@
 
 **Status:** Aprovado
 
-**Contexto**
-A Lambda precisa "consultar a existência e o status do cliente na base de dados". O Tech Challenge prevê um repositório próprio de "Infraestrutura do Banco de Dados Gerenciado" (`repo-db-infra`) — ou seja, o banco (RDS Postgres) é um recurso de infraestrutura compartilhado entre a Lambda e a aplicação principal, não algo interno ao monólito.
+## Contexto
 
-**Decisão**
-A Lambda conecta-se **diretamente** ao banco de dados gerenciado (RDS Postgres) para consultar `Cliente` por `documento` (CPF), em vez de fazer uma chamada HTTP à aplicação principal. Implementada com um client `pg` leve (não Prisma completo), fora de VPC — RDS com endpoint público, protegido por Security Group restrito.
+A Lambda precisa consultar a existência e o status do cliente na base de dados.
+O banco (RDS PostgreSQL) é um recurso gerenciado e compartilhado entre a
+Lambda e a aplicação principal, provisionado pelo repositório de infraestrutura
+do banco.
 
-**Justificativa**
-- Evita acoplar a disponibilidade do login à disponibilidade do cluster Kubernetes da aplicação principal — login continua funcionando mesmo se o monólito estiver degradado.
-- Menor latência (uma chamada a menos na cadeia).
-- É o padrão mais comum em arquiteturas serverless de autenticação (a função de auth acessa a fonte de verdade diretamente).
+## Decisão atual
 
-**Trade-offs**
-- Exige que a Lambda tenha acesso de rede ao RDS. Como a conta só oferece a **role padrão do laboratório** (ADR-0001), a Lambda **não pode ter uma IAM Role própria com as permissões de rede (`ec2:CreateNetworkInterface` etc.) criadas sob medida**. Rodar a Lambda dentro de uma VPC é inviável na conta acadêmica, então a alternativa adotada é acessar o RDS **fora de VPC** (endpoint público, credencial protegida por Security Group restrito ao range de IPs autorizados) — solução aceitável apenas neste contexto educacional, não recomendada em produção real.
-- Lambda fora de VPC evita o overhead de ENI attachment no cold start, mas o RDS público exige disciplina extra de Security Group.
-- Acoplamento de schema: qualquer mudança na tabela `Cliente` (nome de coluna, tipo) precisa ser replicada no client de banco usado pela Lambda.
-- Sem Secrets Manager: a `LabRole` não pode ser ampliada com `secretsmanager:GetSecretValue` sob medida, então a credencial do banco é passada via variável de ambiente da Lambda (menos seguro, aceito neste contexto educacional).
+A Lambda conecta-se diretamente ao RDS PostgreSQL para consultar `Cliente` por
+`documento` (CPF), usando um client `pg` leve. A Lambda executa dentro da VPC,
+e o banco permanece em sub-redes privadas, com acesso limitado pelos grupos de
+segurança. A string de conexão é obtida do AWS Secrets Manager por meio de
+`DATABASE_SECRET_ARN`; nenhum segredo é armazenado no código ou no repositório.
 
-**Impacto**
-- A Lambda usa um client Postgres leve (`pg`), não Prisma completo, para reduzir tamanho do pacote e cold start.
-- Credencial de conexão ao banco via variável de ambiente (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`), nunca hardcoded ou commitada.
-- `repo-db-infra` provê o RDS com endpoint público e Security Group como saída consumível por este repositório.
+## Justificativa
+
+- Evita acoplar a disponibilidade do login à disponibilidade do cluster
+  Kubernetes da aplicação principal.
+- Mantém o banco privado e centraliza a proteção e rotação da credencial no
+  Secrets Manager.
+- O client `pg` reduz o tamanho do pacote e o cold start em comparação com um
+  ORM completo.
+
+## Contexto histórico e trade-offs
+
+Uma versão anterior deste ADR descrevia Lambda fora da VPC, RDS com endpoint
+público e credenciais em variáveis de ambiente, como uma concessão para a conta
+acadêmica. Essa alternativa foi superada pela decisão atual e não representa o
+estado aprovado.
+
+O acesso direto mantém acoplamento ao schema: mudanças na tabela `Cliente`
+precisam ser refletidas no repositório. A execução em VPC exige sub-redes,
+grupos de segurança e permissões de rede adequados para a role da Lambda.
+
+## Impacto
+
+- `repo-db-infra` fornece o RDS privado, a conectividade de rede e o segredo
+  consumido por este repositório.
+- A infraestrutura deste repositório concede à role da Lambda apenas o acesso
+  necessário ao segredo e à rede, conforme a configuração aprovada.
+- Não há evidência de deployment registrada por este ADR; ele documenta a
+  arquitetura aprovada.

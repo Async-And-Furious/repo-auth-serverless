@@ -1,9 +1,57 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Terraform environment
+        required: true
+        type: string
+      operation:
+        description: Terraform operation (always manual)
+        required: true
+        type: string
+      deploy_auth_only:
+        description: Deploy only authentication resources (ignored when backend integration is configured)
+        required: true
+        type: boolean
+      confirm:
+        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        required: false
+        default: ""
+        type: string
   pull_request:
   push:
-    branches: [main, homolog]
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Terraform environment
+        required: true
+        type: choice
+        options: [hml, prod]
+      operation:
+        description: Terraform operation (always manual)
+        required: true
+        type: choice
+        options: [plan, apply, destroy-plan, destroy]
+      deploy_auth_only:
+        description: Deploy only authentication resources (ignored when backend integration is configured)
+        required: true
+        type: boolean
+        default: false
+      confirm:
+        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.environment || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -14,7 +62,267 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      - if: ${{ (github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call') || !startsWith(inputs.operation, 'destroy') }}
+        run: npm run package
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.13"
+      - run: terraform fmt -check -recursive infra
+      - run: terraform init -backend=false -input=false && terraform validate
+        working-directory: infra/hml
+      - run: terraform init -backend=false -input=false && terraform validate
+        working-directory: infra/prod
+
+  terraform_plan:
+    name: Terraform plan (${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }})
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || github.event_name == 'push' && 'hml' || inputs.environment == 'prod' && 'production' || inputs.environment }}
+    permissions:
+      contents: read
+    env:
+      DEPLOY_ACADEMY_MODE: "false"
+      DEPLOY_ENVIRONMENT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }}
+      DEPLOY_OPERATION: ${{ github.event_name == 'push' && 'apply' || inputs.operation }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      TFVARS_AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TFVARS_LAMBDA_PACKAGE_PATH: ${{ github.workspace }}/dist.zip
+      TFVARS_JWT_PRIVATE_KEY_SECRET_ARN: ${{ secrets.JWT_PRIVATE_KEY_SECRET_ARN }}
+      TFVARS_JWT_PUBLIC_KEY_PARAMETER_NAME: ${{ vars.JWT_PUBLIC_KEY_PARAMETER_NAME }}
+      TFVARS_JWT_PUBLIC_KEY_PARAMETER_ARN: ${{ vars.JWT_PUBLIC_KEY_PARAMETER_ARN }}
+      TFVARS_JWT_ISSUER: ${{ vars.JWT_ISSUER || 'repo-auth-serverless' }}
+      TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE || 'async-furious-project' }}
+      TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
+      TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
+      TFVARS_ACADEMY_MODE: "false"
+      TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
+      TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
+      TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
+      TFVARS_DATABASE_SUBNET_IDS: ${{ vars.DATABASE_SUBNET_IDS }}
+      TFVARS_DATABASE_SECURITY_GROUP_IDS: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
+      TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
+      # A configured backend is the full-deployment signal. Auth-only remains
+      # available only as an intentional dispatch with no backend URI.
+      TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
+      TFVARS_VPC_LINK_SUBNET_IDS: ${{ vars.VPC_LINK_SUBNET_IDS }}
+      TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
+      TF_INPUT: "false"
+    steps:
+      - name: Guard production apply
+        if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
+        run: |
+          [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+      - name: Guard HML Academy destroy
+        if: startsWith(env.DEPLOY_OPERATION, 'destroy')
+        run: |
+          [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML.' >&2; exit 1; }
+          [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
+          if [ "$OPERATION" = "destroy" ]; then
+            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+          fi
+        env:
+          DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
+          ACADEMY_MODE: ${{ env.DEPLOY_ACADEMY_MODE }}
+          CONFIRM: ${{ inputs.confirm }}
+          ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
+          OPERATION: ${{ env.DEPLOY_OPERATION }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        with:
+          node-version: 20
+          cache: npm
+      - if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        run: npm ci
+      - if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        run: npm run package
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.13"
+      - name: Write Terraform variables
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          def value(name):
+              return os.environ.get(name, "")
+
+          def boolean(name):
+              return value(name).lower() == "true"
+
+          def number(name):
+              return int(value(name))
+
+          def string_list(name):
+              raw = value(name).strip()
+              if not raw:
+                  return []
+              try:
+                  parsed = json.loads(raw)
+                  return parsed if isinstance(parsed, list) else [str(parsed)]
+              except json.JSONDecodeError:
+                  return [item.strip() for item in raw.split(",") if item.strip()]
+
+          variables = {
+              "aws_region": value("TFVARS_AWS_REGION"),
+              "lambda_package_path": value("TFVARS_LAMBDA_PACKAGE_PATH"),
+              "jwt_private_key_secret_arn": value("TFVARS_JWT_PRIVATE_KEY_SECRET_ARN"),
+              "jwt_public_key_parameter_name": value("TFVARS_JWT_PUBLIC_KEY_PARAMETER_NAME"),
+              "jwt_public_key_parameter_arn": value("TFVARS_JWT_PUBLIC_KEY_PARAMETER_ARN"),
+              "jwt_issuer": value("TFVARS_JWT_ISSUER"),
+              "jwt_audience": value("TFVARS_JWT_AUDIENCE"),
+              "jwt_expires_in": number("TFVARS_JWT_EXPIRES_IN"),
+              "database_secret_arn": value("TFVARS_DATABASE_SECRET_ARN"),
+              "academy_mode": boolean("TFVARS_ACADEMY_MODE"),
+              "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
+              "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
+              "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
+              "database_subnet_ids": string_list("TFVARS_DATABASE_SUBNET_IDS"),
+              "database_security_group_ids": string_list("TFVARS_DATABASE_SECURITY_GROUP_IDS"),
+              "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
+              "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
+              "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
+              "vpc_link_security_group_ids": string_list("TFVARS_VPC_LINK_SECURITY_GROUP_IDS"),
+          }
+          missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
+                                       "jwt_public_key_parameter_arn", "database_secret_arn")
+                     if not variables[name]]
+          if missing:
+              raise SystemExit("Missing required Terraform inputs: " + ", ".join(missing))
+          with open("terraform.auto.tfvars.json", "w", encoding="utf-8") as file:
+              json.dump(variables, file)
+          PY
+      - name: Bootstrap Terraform state backend
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        shell: bash
+        run: bash .github/scripts/bootstrap-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}" "infra/${{ env.DEPLOY_ENVIRONMENT }}/backend.hcl"
+      - name: Read existing destroy state
+        id: destroy_state
+        if: startsWith(env.DEPLOY_OPERATION, 'destroy')
+        shell: bash
+        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless hml infra/hml/backend.hcl
+      - name: Write destroy-only Terraform placeholders
+        if: startsWith(env.DEPLOY_OPERATION, 'destroy') && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: |
+          cat > terraform.auto.tfvars.json <<'JSON'
+          {
+            "aws_region": "${{ env.AWS_REGION }}",
+            "academy_mode": true,
+            "lab_role_arn": "arn:aws:iam::000000000000:role/destroy-placeholder",
+            "auth_lambda_vpc_enabled": false,
+            "deploy_auth_only": true,
+            "jwt_private_key_secret_arn": "destroy-placeholder",
+            "jwt_public_key_parameter_name": "/destroy/placeholder",
+            "jwt_public_key_parameter_arn": "destroy-placeholder",
+            "database_secret_arn": "destroy-placeholder"
+          }
+          JSON
+      - name: Terraform state preflight
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: |
+          test -s backend.hcl
+          aws sts get-caller-identity --output text >/dev/null
+          terraform init -reconfigure -input=false -backend-config=backend.hcl
+      - working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        if: startsWith(env.DEPLOY_OPERATION, 'destroy') && steps.destroy_state.outputs.has_state == 'true'
+        run: terraform init -reconfigure -input=false -backend-config=backend.hcl
+      - name: Terraform plan
+        if: env.DEPLOY_OPERATION == 'plan' || env.DEPLOY_OPERATION == 'apply'
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: terraform plan -input=false -out=tfplan
+      - name: Upload exact Terraform plan
+        if: (env.DEPLOY_OPERATION == 'plan' || env.DEPLOY_OPERATION == 'apply') && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ env.DEPLOY_ENVIRONMENT }}-${{ github.run_id }}
+          path: |
+            dist.zip
+            infra/${{ env.DEPLOY_ENVIRONMENT }}/tfplan
+            infra/${{ env.DEPLOY_ENVIRONMENT }}/backend.hcl
+          retention-days: 7
+          if-no-files-found: error
+      - name: Terraform destroy plan
+        if: env.DEPLOY_OPERATION == 'destroy-plan' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform plan -destroy -input=false
+      - name: Save exact Terraform destroy plan
+        if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform plan -destroy -input=false -out=destroy.tfplan
+      - name: Apply exact Terraform destroy plan
+        if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
+        working-directory: infra/hml
+        run: terraform apply -input=false destroy.tfplan
+      - name: Remove generated Terraform inputs
+        if: always()
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: rm -f terraform.auto.tfvars.json backend.hcl destroy.tfplan
+
+  terraform_apply:
+    name: Terraform apply (${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }})
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.operation == 'apply')
+    needs: terraform_plan
+    runs-on: ubuntu-latest
+    # Configure required reviewers on the prod GitHub Environment. This is the
+    # only normal deployment job that can apply the saved plan.
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || github.event_name == 'push' && 'hml' || inputs.environment == 'prod' && 'production' || inputs.environment }}
+    permissions:
+      contents: read
+    env:
+      DEPLOY_ENVIRONMENT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || github.event_name == 'push' && 'hml' || inputs.environment }}
+      DEPLOY_ACADEMY_MODE: "false"
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ env.DEPLOY_ENVIRONMENT }}-${{ github.run_id }}
+          path: .
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.13"
+      - name: Initialize Terraform with saved plan backend
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: terraform init -reconfigure -input=false -backend-config=backend.hcl
+      - name: Guard production apply confirmation
+        if: env.DEPLOY_ENVIRONMENT == 'prod' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
+      - name: Apply exact saved Terraform plan
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
+        run: terraform apply -input=false -auto-approve tfplan
