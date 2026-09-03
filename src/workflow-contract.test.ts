@@ -20,7 +20,8 @@ describe("delivery workflow contract", () => {
   it("keeps destructive operations manual and HML-only", () => {
     expect(workflow).toContain("options: [plan, apply, destroy-plan, destroy]");
     expect(workflow).toContain('[ "$ENVIRONMENT" = "hml" ]');
-    expect(workflow).toContain('[ "$ACADEMY_MODE" = "true" ]');
+    expect(workflow).toContain('[ "$CONFIRM" = "DESTROY HML" ]');
+    expect(workflow).not.toContain("Destroy operations require Academy mode.");
     expect(workflow).toContain('TFVARS_ACADEMY_MODE: "false"');
   });
 
