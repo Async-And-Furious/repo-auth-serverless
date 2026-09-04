@@ -16,7 +16,7 @@ on:
         required: true
         type: boolean
       confirm:
-        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        description: Type "APPLY PROD" for production apply, "DESTROY HML" for HML destroy, or "DESTROY PROD" for production destroy
         required: false
         default: ""
         type: string
@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       confirm:
-        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        description: Type "APPLY PROD" for production apply, "DESTROY HML" for HML destroy, or "DESTROY PROD" for production destroy
         required: false
         default: ""
         type: string
@@ -123,13 +123,18 @@ jobs:
           [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
         env:
           CONFIRM: ${{ inputs.confirm }}
-      - name: Guard HML Academy destroy
+      - name: Guard destructive operation
         if: startsWith(env.DEPLOY_OPERATION, 'destroy')
         run: |
-          [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML.' >&2; exit 1; }
-          [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
-          if [ "$OPERATION" = "destroy" ]; then
-            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+          if [ "$ENVIRONMENT" = "prod" ]; then
+            [ "$EVENT_NAME" = "workflow_dispatch" ] || { echo 'Production destroy is allowed only through workflow_dispatch.' >&2; exit 1; }
+            [ "$CONFIRM" = "DESTROY PROD" ] || { echo 'Production destroy requires confirm="DESTROY PROD".' >&2; exit 1; }
+          else
+            [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML or explicitly dispatched production.' >&2; exit 1; }
+            [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
+            if [ "$OPERATION" = "destroy" ]; then
+              [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+            fi
           fi
         env:
           DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
@@ -137,6 +142,7 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
           ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
           OPERATION: ${{ env.DEPLOY_OPERATION }}
+          EVENT_NAME: ${{ github.event_name }}
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
@@ -236,11 +242,14 @@ jobs:
         id: destroy_state
         if: startsWith(env.DEPLOY_OPERATION, 'destroy')
         shell: bash
-        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless hml infra/hml/backend.hcl
+        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}" "infra/${{ env.DEPLOY_ENVIRONMENT }}/backend.hcl"
       - name: Write destroy-only Terraform placeholders
         if: startsWith(env.DEPLOY_OPERATION, 'destroy') && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: |
+          # Destroy reads existing state only. These values are deliberately
+          # placeholders: the external JWT/database secrets and S3 backend are
+          # not Terraform resources in this stack and are never deleted here.
           cat > terraform.auto.tfvars.json <<'JSON'
           {
             "aws_region": "${{ env.AWS_REGION }}",
@@ -281,15 +290,15 @@ jobs:
           if-no-files-found: error
       - name: Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy-plan' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform plan -destroy -input=false
       - name: Save exact Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform plan -destroy -input=false -out=destroy.tfplan
       - name: Apply exact Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform apply -input=false destroy.tfplan
       - name: Remove generated Terraform inputs
         if: always()
