@@ -76,11 +76,3 @@ variable "deploy_auth_only" {
   type    = bool
   default = true
 }
-variable "vpc_link_subnet_ids" {
-  type    = list(string)
-  default = []
-}
-variable "vpc_link_security_group_ids" {
-  type    = list(string)
-  default = []
-}
