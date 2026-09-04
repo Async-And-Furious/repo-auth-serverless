@@ -64,9 +64,10 @@ and `JWT_PUBLIC_KEY_PARAMETER_ARN`. The Lambda consumes matching private
 subnets from `repo-k8s-infra` state and the database security group from
 `repo-db-infra` state; these IDs must not be set as GitHub variables. Optional variables are
 `AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
-`BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN), `VPC_LINK_SUBNET_IDS`, and
-`VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
-`["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
+`BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN). VPC Link private subnet
+IDs and the internal ALB security group ID are read from the matching
+`repo-k8s-infra` remote state; they are not GitHub variables. No AWS resource
+IDs are stored in this repository.
 
 `BACKEND_INTEGRATION_URI` is environment-scoped: HML must use the HML
 `internal_alb_listener_arn` output and production must use the corresponding
@@ -142,13 +143,13 @@ Provide the required variables through an uncommitted tfvars file.
 Integration values still required for a full deployment are the JWT private-key
 Secrets Manager ARN, database secret ARN, and JWT public-key SSM parameter name
 and ARN. Lambda VPC networking is read from matching K8s/DB remote state, and
-(when `deploy_auth_only=false`)
-the ALB/NLB listener ARN as `backend_integration_uri` plus VPC Link
-subnet/security-group IDs. The API Gateway backend URI is not known by this
+When `deploy_auth_only=false`, the ALB/NLB listener ARN is supplied as
+`backend_integration_uri`. The API Gateway backend URI is not known by this
 repository and must be supplied by the Kubernetes/infrastructure deployment;
-it must be an ALB/NLB listener ARN, not a normal HTTP URL. `backend_integration_uri`
-must contain the listener ARN, plus VPC Link subnet/security-group IDs, to enable the
-RFC-003 protected EKS route and Lambda Authorizer when `deploy_auth_only=false`.
+it must be an ALB/NLB listener ARN, not a normal HTTP URL. The VPC Link uses
+the matching private subnets and `internal_alb_security_group_id` from
+`repo-k8s-infra` state to enable the RFC-003 protected EKS route and Lambda
+Authorizer.
 The Terraform module default `deploy_auth_only=true` is a safe local auth-only
 fallback. The workflow default is `false`; its backend URI rule above ensures
 that an orchestrated full deployment enables the protected backend path.

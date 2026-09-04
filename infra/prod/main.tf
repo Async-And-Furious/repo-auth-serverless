@@ -37,6 +37,8 @@ locals {
   backend_enabled             = !var.deploy_auth_only && trimspace(var.backend_integration_uri) != ""
   database_subnet_ids         = data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
   database_security_group_ids = [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
+  vpc_link_subnet_ids         = data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
+  vpc_link_security_group_ids = [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
 }
 
 resource "aws_iam_role" "auth" {
@@ -133,11 +135,11 @@ resource "aws_apigatewayv2_route" "auth" {
 resource "aws_apigatewayv2_vpc_link" "backend" {
   count              = local.backend_enabled ? 1 : 0
   name               = "${var.name_prefix}-backend"
-  subnet_ids         = var.vpc_link_subnet_ids
-  security_group_ids = var.vpc_link_security_group_ids
+  subnet_ids         = local.vpc_link_subnet_ids
+  security_group_ids = local.vpc_link_security_group_ids
   lifecycle {
     precondition {
-      condition     = length(var.vpc_link_subnet_ids) > 0 && alltrue([for id in var.vpc_link_subnet_ids : trimspace(id) != ""]) && length(var.vpc_link_security_group_ids) > 0 && alltrue([for id in var.vpc_link_security_group_ids : trimspace(id) != ""])
+      condition     = length(local.vpc_link_subnet_ids) > 0 && alltrue([for id in local.vpc_link_subnet_ids : trimspace(id) != ""]) && length(local.vpc_link_security_group_ids) > 0 && alltrue([for id in local.vpc_link_security_group_ids : trimspace(id) != ""])
       error_message = "VPC Link subnet and security-group IDs must be non-empty when backend integration is enabled."
     }
   }

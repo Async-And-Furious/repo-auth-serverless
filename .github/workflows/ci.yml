@@ -111,8 +111,6 @@ jobs:
       # A configured backend is the full-deployment signal. Auth-only remains
       # available only as an intentional dispatch with no backend URI.
       TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
-      TFVARS_VPC_LINK_SUBNET_IDS: ${{ vars.VPC_LINK_SUBNET_IDS }}
-      TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
@@ -178,16 +176,6 @@ jobs:
           def number(name):
               return int(value(name))
 
-          def string_list(name):
-              raw = value(name).strip()
-              if not raw:
-                  return []
-              try:
-                  parsed = json.loads(raw)
-                  return parsed if isinstance(parsed, list) else [str(parsed)]
-              except json.JSONDecodeError:
-                  return [item.strip() for item in raw.split(",") if item.strip()]
-
           variables = {
               "aws_region": value("TFVARS_AWS_REGION"),
               "lambda_package_path": value("TFVARS_LAMBDA_PACKAGE_PATH"),
@@ -204,8 +192,6 @@ jobs:
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
-              "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
-              "vpc_link_security_group_ids": string_list("TFVARS_VPC_LINK_SECURITY_GROUP_IDS"),
           }
           missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
                                        "jwt_public_key_parameter_arn", "database_secret_arn")
