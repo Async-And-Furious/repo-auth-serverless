@@ -13,14 +13,14 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}");
     expect(workflow).toContain("aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}");
     expect(workflow).toContain("aws-session-token: ${{ env.AWS_SESSION_TOKEN }}");
-    expect(workflow).toContain("env.DEPLOY_OPERATION == 'apply' && github.event_name == 'workflow_dispatch'");
-    expect(workflow).not.toContain("Production requires OIDC credentials; Academy credentials are not permitted.");
+    expect(workflow).toContain("if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')");
+    expect(workflow).toContain('[ "$CONFIRM" = "APPLY PROD" ]');
   });
 
   it("keeps destructive operations manual and HML-only", () => {
     expect(workflow).toContain("options: [plan, apply, destroy-plan, destroy]");
     expect(workflow).toContain('[ "$ENVIRONMENT" = "hml" ]');
-    expect(workflow).toContain('[ "$ACADEMY_MODE" = "true" ]');
+    expect(workflow).toContain('[ "$CONFIRM" = "DESTROY HML" ]');
     expect(workflow).toContain('TFVARS_ACADEMY_MODE: "false"');
   });
 
