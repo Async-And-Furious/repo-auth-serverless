@@ -30,4 +30,11 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("terraform-plan-${{ env.DEPLOY_ENVIRONMENT }}-${{ github.run_id }}");
     expect(workflow).toContain("path: .");
   });
+
+  it("does not allow production to use an HML backend listener", () => {
+    expect(workflow).toContain("Validate production backend source");
+    expect(workflow).toContain("vars.BACKEND_INTEGRATION_URI");
+    expect(workflow).toContain("tc3-hml-internal");
+    expect(workflow).toContain("production environment BACKEND_INTEGRATION_URI");
+  });
 });

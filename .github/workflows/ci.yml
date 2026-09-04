@@ -213,6 +213,21 @@ jobs:
           with open("terraform.auto.tfvars.json", "w", encoding="utf-8") as file:
               json.dump(variables, file)
           PY
+      - name: Validate production backend source
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') && env.DEPLOY_ENVIRONMENT == 'prod' }}
+        env:
+          BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
+        run: |
+          if [ -z "${BACKEND_INTEGRATION_URI//[[:space:]]/}" ]; then
+            echo 'Production requires the production environment BACKEND_INTEGRATION_URI (the repo-k8s-infra prod internal_alb_listener_arn output).' >&2
+            exit 1
+          fi
+          case "$BACKEND_INTEGRATION_URI" in
+            *tc3-hml-internal*)
+              echo 'Refusing production deployment with the HML backend listener tc3-hml-internal; configure production BACKEND_INTEGRATION_URI from the prod Kubernetes state.' >&2
+              exit 1
+              ;;
+          esac
       - name: Bootstrap Terraform state backend
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         shell: bash
