@@ -7,7 +7,6 @@
   private API Gateway VPC Link. Removed empty GitHub VPC Link inputs; the
   existing ALB listener ARN integration and private route remain unchanged.
 - No AWS apply or destroy was run.
-
 ## 2026-09-04 — Remote-state Lambda networking
 
 - Removed GitHub subnet/security-group inputs, including stale HML subnet
