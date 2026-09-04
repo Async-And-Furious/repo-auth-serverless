@@ -1,5 +1,12 @@
 # Agent log
 
+## 2026-09-04 — API Gateway VPC Link remote-state networking
+
+- HML and production now consume `private_subnet_ids` and
+  `internal_alb_security_group_id` from matching `repo-k8s-infra` state for the
+  private API Gateway VPC Link. Removed empty GitHub VPC Link inputs; the
+  existing ALB listener ARN integration and private route remain unchanged.
+- No AWS apply or destroy was run.
 ## 2026-09-04 — Remote-state Lambda networking
 
 - Removed GitHub subnet/security-group inputs, including stale HML subnet
