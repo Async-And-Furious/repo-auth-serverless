@@ -1,10 +1,16 @@
-name: Down HML
+name: Down authentication
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: Terraform environment to destroy
+        required: true
+        type: choice
+        options: [hml, prod]
+        default: hml
       confirm:
-        description: Type DESTROY HML to confirm deletion
+        description: Type DESTROY HML or DESTROY PROD to confirm deletion
         required: true
         type: string
 
@@ -12,11 +18,11 @@ permissions:
   contents: read
 
 jobs:
-  destroy-hml:
-    name: Destroy HML authentication
+  destroy-auth:
+    name: Destroy ${{ inputs.environment }} authentication
     uses: ./.github/workflows/ci.yml
     with:
-      environment: hml
+      environment: ${{ inputs.environment }}
       operation: destroy
       deploy_auth_only: false
       confirm: ${{ inputs.confirm }}
