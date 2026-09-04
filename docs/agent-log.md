@@ -1,25 +1,5 @@
 # Agent log
 
-## 2026-09-04 — Destructive-operation confirmation guard
-
-- HML destroy now accepts normal AWS credentials with exact `DESTROY HML` confirmation; production destroy remains dispatch-only, Academy-mode-only, and requires exact `DESTROY PROD` confirmation.
-- No AWS destroy was executed.
-
-## 2026-09-04 — API Gateway VPC Link remote-state networking
-
-- HML and production now consume `private_subnet_ids` and
-  `internal_alb_security_group_id` from matching `repo-k8s-infra` state for the
-  private API Gateway VPC Link. Removed empty GitHub VPC Link inputs; the
-  existing ALB listener ARN integration and private route remain unchanged.
-- No AWS apply or destroy was run.
-## 2026-09-04 — Remote-state Lambda networking
-
-- Removed GitHub subnet/security-group inputs, including stale HML subnet
-  handling that caused Terraform plan failures.
-- HML and production now read matching private subnets from `repo-k8s-infra`
-  state and the database security group from `repo-db-infra` state. No AWS
-  apply or destroy was run.
-
 ## 2026-09-04 — Explicit production destroy workflow
 
 - Added dispatch-only production destroy with the protected `production`

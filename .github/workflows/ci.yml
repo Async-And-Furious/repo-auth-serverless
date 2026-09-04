@@ -107,10 +107,14 @@ jobs:
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
+      TFVARS_DATABASE_SUBNET_IDS: ${{ vars.DATABASE_SUBNET_IDS }}
+      TFVARS_DATABASE_SECURITY_GROUP_IDS: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
       TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
       # A configured backend is the full-deployment signal. Auth-only remains
       # available only as an intentional dispatch with no backend URI.
       TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
+      TFVARS_VPC_LINK_SUBNET_IDS: ${{ vars.VPC_LINK_SUBNET_IDS }}
+      TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
@@ -124,13 +128,13 @@ jobs:
         run: |
           if [ "$ENVIRONMENT" = "prod" ]; then
             [ "$EVENT_NAME" = "workflow_dispatch" ] || { echo 'Production destroy is allowed only through workflow_dispatch.' >&2; exit 1; }
-            [ "$ACADEMY_MODE" = "true" ] || { echo 'Production destroy requires Academy mode.' >&2; exit 1; }
             [ "$CONFIRM" = "DESTROY PROD" ] || { echo 'Production destroy requires confirm="DESTROY PROD".' >&2; exit 1; }
-          elif [ "$ENVIRONMENT" = "hml" ]; then
-            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'HML destroy requires confirm="DESTROY HML".' >&2; exit 1; }
           else
-            echo 'Destroy operations are restricted to HML or production.' >&2
-            exit 1
+            [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML or explicitly dispatched production.' >&2; exit 1; }
+            [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
+            if [ "$OPERATION" = "destroy" ]; then
+              [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+            fi
           fi
         env:
           DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
@@ -176,6 +180,16 @@ jobs:
           def number(name):
               return int(value(name))
 
+          def string_list(name):
+              raw = value(name).strip()
+              if not raw:
+                  return []
+              try:
+                  parsed = json.loads(raw)
+                  return parsed if isinstance(parsed, list) else [str(parsed)]
+              except json.JSONDecodeError:
+                  return [item.strip() for item in raw.split(",") if item.strip()]
+
           variables = {
               "aws_region": value("TFVARS_AWS_REGION"),
               "lambda_package_path": value("TFVARS_LAMBDA_PACKAGE_PATH"),
@@ -190,8 +204,12 @@ jobs:
               "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
               "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
+              "database_subnet_ids": string_list("TFVARS_DATABASE_SUBNET_IDS"),
+              "database_security_group_ids": string_list("TFVARS_DATABASE_SECURITY_GROUP_IDS"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
+              "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
+              "vpc_link_security_group_ids": string_list("TFVARS_VPC_LINK_SECURITY_GROUP_IDS"),
           }
           missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
                                        "jwt_public_key_parameter_arn", "database_secret_arn")
