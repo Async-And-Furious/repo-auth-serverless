@@ -1,5 +1,13 @@
 # Agent log
 
+## 2026-09-04 — Explicit production destroy workflow
+
+- Added dispatch-only production destroy with the protected `production`
+  Environment and exact `DESTROY PROD` confirmation.
+- Kept HML destroy behavior, state backend, and external JWT/database secrets
+  unchanged; destroy-only Terraform placeholders are used without deleting
+  those external resources. No destroy was executed.
+
 ## 2026-08-31 — Academy workflow and exact Lambda artifact
 
 - Updated documentation and workflow-contract coverage for the always-Academy

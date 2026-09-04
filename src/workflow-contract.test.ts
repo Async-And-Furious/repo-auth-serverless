@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const downWorkflow = readFileSync(new URL("../.github/workflows/down.yml", import.meta.url), "utf8");
 
 describe("delivery workflow contract", () => {
   it("keeps automatic HML and protected production delivery distinct", () => {
@@ -36,5 +37,17 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("vars.BACKEND_INTEGRATION_URI");
     expect(workflow).toContain("tc3-hml-internal");
     expect(workflow).toContain("production environment BACKEND_INTEGRATION_URI");
+  });
+
+  it("allows production destroy only through the explicit dispatch contract", () => {
+    expect(workflow).toContain('Production destroy is allowed only through workflow_dispatch.');
+    expect(workflow).toContain('[ "$CONFIRM" = "DESTROY PROD" ]');
+    expect(workflow).toContain("environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production'");
+    expect(workflow).toContain('prepare-destroy-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}"');
+    expect(workflow).toContain("working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}");
+    expect(workflow).toContain("external JWT/database secrets and S3 backend");
+    expect(downWorkflow).toContain("options: [hml, prod]");
+    expect(downWorkflow).toContain("environment: ${{ inputs.environment }}");
+    expect(downWorkflow).toContain("operation: destroy");
   });
 });
