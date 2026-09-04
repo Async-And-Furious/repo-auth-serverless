@@ -8,13 +8,35 @@ data "aws_iam_policy_document" "lambda_assume" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
+data "terraform_remote_state" "k8s_infra" {
+  backend = "s3"
+  config = {
+    bucket = "tc3-tfstate-${data.aws_caller_identity.current.account_id}"
+    key    = "repo-k8s-infra/prod/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
+data "terraform_remote_state" "db_infra" {
+  backend = "s3"
+  config = {
+    bucket = "tc3-tfstate-${data.aws_caller_identity.current.account_id}"
+    key    = "repo-db-infra/prod/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
 locals {
-  lambda_package_path        = var.lambda_package_path != "" ? var.lambda_package_path : "${path.module}/../../dist.zip"
-  create_auth_lambda_role    = !var.academy_mode && trimspace(var.auth_lambda_role_arn) == ""
-  create_authorizer_role     = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) == ""
-  auth_lambda_role_arn       = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.auth_lambda_role_arn) != "" ? trimspace(var.auth_lambda_role_arn) : aws_iam_role.auth[0].arn
-  authorizer_lambda_role_arn = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.authorizer_lambda_role_arn) != "" ? trimspace(var.authorizer_lambda_role_arn) : aws_iam_role.authorizer[0].arn
-  backend_enabled            = !var.deploy_auth_only && trimspace(var.backend_integration_uri) != ""
+  lambda_package_path         = var.lambda_package_path != "" ? var.lambda_package_path : "${path.module}/../../dist.zip"
+  create_auth_lambda_role     = !var.academy_mode && trimspace(var.auth_lambda_role_arn) == ""
+  create_authorizer_role      = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) == ""
+  auth_lambda_role_arn        = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.auth_lambda_role_arn) != "" ? trimspace(var.auth_lambda_role_arn) : aws_iam_role.auth[0].arn
+  authorizer_lambda_role_arn  = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.authorizer_lambda_role_arn) != "" ? trimspace(var.authorizer_lambda_role_arn) : aws_iam_role.authorizer[0].arn
+  backend_enabled             = !var.deploy_auth_only && trimspace(var.backend_integration_uri) != ""
+  database_subnet_ids         = data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
+  database_security_group_ids = [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
 }
 
 resource "aws_iam_role" "auth" {
@@ -69,8 +91,8 @@ resource "aws_lambda_function" "auth" {
   dynamic "vpc_config" {
     for_each = var.auth_lambda_vpc_enabled ? [1] : []
     content {
-      subnet_ids         = var.database_subnet_ids
-      security_group_ids = var.database_security_group_ids
+      subnet_ids         = local.database_subnet_ids
+      security_group_ids = local.database_security_group_ids
     }
   }
   environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }

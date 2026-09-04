@@ -64,22 +64,6 @@ variable "auth_lambda_vpc_enabled" {
   type    = bool
   default = true
 }
-variable "database_security_group_ids" {
-  type    = list(string)
-  default = []
-  validation {
-    condition     = !var.auth_lambda_vpc_enabled || (length(var.database_security_group_ids) > 0 && alltrue([for id in var.database_security_group_ids : trimspace(id) != ""]))
-    error_message = "database_security_group_ids must contain non-empty values when auth_lambda_vpc_enabled is true."
-  }
-}
-variable "database_subnet_ids" {
-  type    = list(string)
-  default = []
-  validation {
-    condition     = !var.auth_lambda_vpc_enabled || (length(var.database_subnet_ids) > 0 && alltrue([for id in var.database_subnet_ids : trimspace(id) != ""]))
-    error_message = "database_subnet_ids must contain non-empty values when auth_lambda_vpc_enabled is true."
-  }
-}
 variable "backend_integration_uri" {
   type    = string
   default = ""
