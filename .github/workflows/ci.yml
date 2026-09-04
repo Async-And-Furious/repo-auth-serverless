@@ -107,8 +107,6 @@ jobs:
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
-      TFVARS_DATABASE_SUBNET_IDS: ${{ vars.DATABASE_SUBNET_IDS }}
-      TFVARS_DATABASE_SECURITY_GROUP_IDS: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
       TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
       # A configured backend is the full-deployment signal. Auth-only remains
       # available only as an intentional dispatch with no backend URI.
@@ -204,8 +202,6 @@ jobs:
               "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
               "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
-              "database_subnet_ids": string_list("TFVARS_DATABASE_SUBNET_IDS"),
-              "database_security_group_ids": string_list("TFVARS_DATABASE_SECURITY_GROUP_IDS"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
               "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
