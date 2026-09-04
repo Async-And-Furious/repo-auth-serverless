@@ -1,5 +1,10 @@
 # Agent log
 
+## 2026-09-04 — Destructive-operation confirmation guard
+
+- HML destroy now accepts normal AWS credentials with exact `DESTROY HML` confirmation; production destroy remains dispatch-only, Academy-mode-only, and requires exact `DESTROY PROD` confirmation.
+- No AWS destroy was executed.
+
 ## 2026-09-04 — API Gateway VPC Link remote-state networking
 
 - HML and production now consume `private_subnet_ids` and

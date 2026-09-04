@@ -124,13 +124,13 @@ jobs:
         run: |
           if [ "$ENVIRONMENT" = "prod" ]; then
             [ "$EVENT_NAME" = "workflow_dispatch" ] || { echo 'Production destroy is allowed only through workflow_dispatch.' >&2; exit 1; }
+            [ "$ACADEMY_MODE" = "true" ] || { echo 'Production destroy requires Academy mode.' >&2; exit 1; }
             [ "$CONFIRM" = "DESTROY PROD" ] || { echo 'Production destroy requires confirm="DESTROY PROD".' >&2; exit 1; }
+          elif [ "$ENVIRONMENT" = "hml" ]; then
+            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'HML destroy requires confirm="DESTROY HML".' >&2; exit 1; }
           else
-            [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML or explicitly dispatched production.' >&2; exit 1; }
-            [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
-            if [ "$OPERATION" = "destroy" ]; then
-              [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
-            fi
+            echo 'Destroy operations are restricted to HML or production.' >&2
+            exit 1
           fi
         env:
           DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
