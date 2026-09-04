@@ -147,3 +147,11 @@
 - Added security-contract coverage for active-customer RS256 issuance and
   authorizer decisions, plus correlation-safe structured success/error logs.
 - Validation was run locally; no AWS command, Terraform apply, or destroy was run.
+
+## 2026-09-03 — Production backend listener guard
+
+- Production now requires its environment-scoped `BACKEND_INTEGRATION_URI` and
+  rejects the known HML `tc3-hml-internal` listener instead of cross-wiring the
+  API Gateway integration. The input remains the approved listener ARN output
+  from the matching `repo-k8s-infra` state; no remote-state shortcut or secret
+  handling was added. No Terraform apply was run.

@@ -67,6 +67,12 @@ Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETE
 `VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
 `["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
 
+`BACKEND_INTEGRATION_URI` is environment-scoped: HML must use the HML
+`internal_alb_listener_arn` output and production must use the corresponding
+production output from `repo-k8s-infra`. The production workflow fails when the
+value is missing or contains the known HML listener name `tc3-hml-internal`; it
+never falls back to HML or to an auth-only deployment.
+
 For AWS Academy/Lab, set the existing Lambda execution role as a non-secret
 environment variable:
 
