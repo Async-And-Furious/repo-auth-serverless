@@ -1,5 +1,13 @@
 # Agent log
 
+## 2026-09-04 — Remote-state Lambda networking
+
+- Removed GitHub subnet/security-group inputs, including stale HML subnet
+  handling that caused Terraform plan failures.
+- HML and production now read matching private subnets from `repo-k8s-infra`
+  state and the database security group from `repo-db-infra` state. No AWS
+  apply or destroy was run.
+
 ## 2026-09-04 — Explicit production destroy workflow
 
 - Added dispatch-only production destroy with the protected `production`

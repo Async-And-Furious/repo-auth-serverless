@@ -60,8 +60,9 @@ URI always selects the full deployment path, even if the input is accidentally
 set to `true`.
 
 Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
-`JWT_PUBLIC_KEY_PARAMETER_ARN`, `DATABASE_SUBNET_IDS`, and
-`DATABASE_SECURITY_GROUP_IDS`. Optional variables are
+and `JWT_PUBLIC_KEY_PARAMETER_ARN`. The Lambda consumes matching private
+subnets from `repo-k8s-infra` state and the database security group from
+`repo-db-infra` state; these IDs must not be set as GitHub variables. Optional variables are
 `AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
 `BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN), `VPC_LINK_SUBNET_IDS`, and
 `VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
@@ -139,8 +140,9 @@ backend, initialize the selected root, and run the usual Terraform commands.
 Use `infra/prod` only for plan/apply; run apply only after review.
 Provide the required variables through an uncommitted tfvars file.
 Integration values still required for a full deployment are the JWT private-key
-Secrets Manager ARN, database secret ARN, JWT public-key SSM parameter name and
-ARN, Lambda VPC subnet/security-group IDs, and (when `deploy_auth_only=false`)
+Secrets Manager ARN, database secret ARN, and JWT public-key SSM parameter name
+and ARN. Lambda VPC networking is read from matching K8s/DB remote state, and
+(when `deploy_auth_only=false`)
 the ALB/NLB listener ARN as `backend_integration_uri` plus VPC Link
 subnet/security-group IDs. The API Gateway backend URI is not known by this
 repository and must be supplied by the Kubernetes/infrastructure deployment;
@@ -162,8 +164,8 @@ npm test
 JWT signing and API Gateway ownership follow accepted RFC-003 and RFC-006.
 Terraform also exposes environment-scoped API Gateway outputs: API id and
 endpoint, `/auth` route key, authorizer id, and protected route, integration,
-VPC Link, and backend URI values when full integration is enabled. No
-unsupported remote-state or cross-repository automation is assumed.
+VPC Link, and backend URI values when full integration is enabled. Lambda
+network inputs use the matching approved remote-state contracts.
 Customer lookup uses the fixed cross-repository schema contract:
 
 ```sql
