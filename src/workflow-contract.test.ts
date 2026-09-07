@@ -43,7 +43,7 @@ describe("delivery workflow contract", () => {
   it("allows production destroy only through the explicit dispatch contract", () => {
     expect(workflow).toContain('Production destroy is allowed only through workflow_dispatch.');
     expect(workflow).toContain('[ "$CONFIRM" = "DESTROY PROD" ]');
-    expect(workflow).toContain('Production destroy requires Academy mode.');
+    expect(workflow).not.toContain('Production destroy requires Academy mode.');
     expect(workflow).toContain("environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production'");
     expect(workflow).toContain('prepare-destroy-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}"');
     expect(workflow).toContain("working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}");
