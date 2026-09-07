@@ -35,10 +35,10 @@ locals {
   auth_lambda_role_arn        = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.auth_lambda_role_arn) != "" ? trimspace(var.auth_lambda_role_arn) : aws_iam_role.auth[0].arn
   authorizer_lambda_role_arn  = var.academy_mode ? trimspace(var.lab_role_arn) : trimspace(var.authorizer_lambda_role_arn) != "" ? trimspace(var.authorizer_lambda_role_arn) : aws_iam_role.authorizer[0].arn
   backend_enabled             = !var.deploy_auth_only && trimspace(var.backend_integration_uri) != ""
-  database_subnet_ids         = data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
-  database_security_group_ids = [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
-  vpc_link_subnet_ids         = data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
-  vpc_link_security_group_ids = [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
+  database_subnet_ids         = var.destroy_mode ? [] : data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
+  database_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
+  vpc_link_subnet_ids         = var.destroy_mode ? [] : data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
+  vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
 }
 
 resource "aws_iam_role" "auth" {
