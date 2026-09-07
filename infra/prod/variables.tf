@@ -76,3 +76,8 @@ variable "deploy_auth_only" {
   type    = bool
   default = true
 }
+
+variable "destroy_mode" {
+  type    = bool
+  default = false
+}

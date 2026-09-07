@@ -111,6 +111,7 @@ jobs:
       # A configured backend is the full-deployment signal. Auth-only remains
       # available only as an intentional dispatch with no backend URI.
       TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
+      TFVARS_DESTROY_MODE: ${{ startsWith(inputs.operation, 'destroy') }}
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
@@ -191,6 +192,7 @@ jobs:
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
+              "destroy_mode": boolean("TFVARS_DESTROY_MODE"),
           }
           missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
                                        "jwt_public_key_parameter_arn", "database_secret_arn")
@@ -238,6 +240,7 @@ jobs:
             "lab_role_arn": "arn:aws:iam::000000000000:role/destroy-placeholder",
             "auth_lambda_vpc_enabled": false,
             "deploy_auth_only": true,
+            "destroy_mode": true,
             "jwt_private_key_secret_arn": "destroy-placeholder",
             "jwt_public_key_parameter_name": "/destroy/placeholder",
             "jwt_public_key_parameter_arn": "destroy-placeholder",
