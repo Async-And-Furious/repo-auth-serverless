@@ -23,7 +23,7 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain('[ "$ENVIRONMENT" = "hml" ]');
     expect(workflow).toContain('[ "$CONFIRM" = "DESTROY HML" ]');
     expect(workflow).toContain('TFVARS_ACADEMY_MODE: "false"');
-    expect(workflow).toContain('HML destroy requires confirm="DESTROY HML".');
+    expect(workflow).toContain('Destroy requires confirm="DESTROY HML".');
   });
 
   it("ships the exact package used by the saved plan", () => {
