@@ -111,6 +111,7 @@ jobs:
       # The backend listener is populated from matching Kubernetes state below;
       # deployment runs therefore always use the full integration path.
       TFVARS_DEPLOY_AUTH_ONLY: "false"
+      TFVARS_DESTROY_MODE: ${{ startsWith(inputs.operation, 'destroy') }}
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
@@ -127,7 +128,6 @@ jobs:
             [ "$CONFIRM" = "DESTROY PROD" ] || { echo 'Production destroy requires confirm="DESTROY PROD".' >&2; exit 1; }
           else
             [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML or explicitly dispatched production.' >&2; exit 1; }
-            [ "$ACADEMY_MODE" = "true" ] || { echo 'Destroy operations require Academy mode.' >&2; exit 1; }
             if [ "$OPERATION" = "destroy" ]; then
               [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
             fi
@@ -222,6 +222,7 @@ jobs:
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
+              "destroy_mode": boolean("TFVARS_DESTROY_MODE"),
           }
           missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
                                        "jwt_public_key_parameter_arn", "database_secret_arn")
@@ -267,6 +268,7 @@ jobs:
             "lab_role_arn": "arn:aws:iam::000000000000:role/destroy-placeholder",
             "auth_lambda_vpc_enabled": false,
             "deploy_auth_only": true,
+            "destroy_mode": true,
             "jwt_private_key_secret_arn": "destroy-placeholder",
             "jwt_public_key_parameter_name": "/destroy/placeholder",
             "jwt_public_key_parameter_arn": "destroy-placeholder",
