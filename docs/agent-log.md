@@ -1,5 +1,13 @@
 # Agent log
 
+## 2026-09-09 — Kubernetes remote-state backend listener
+
+- CI now reads the selected HML/production `internal_alb_listener_arn` directly
+  from the matching `repo-k8s-infra` Terraform state, validates the listener ARN,
+  and fails closed when state or output is unavailable.
+- Preserved production rejection of the known HML listener. No AWS apply or
+  destroy was run.
+
 ## 2026-09-04 — API Gateway VPC Link remote-state networking
 
 - HML and production now consume `private_subnet_ids` and

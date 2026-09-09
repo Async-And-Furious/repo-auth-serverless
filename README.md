@@ -53,27 +53,25 @@ environments: pushes to `develop` deploy HML automatically, while production
 uses the protected `production` Environment approval. Manual runs select
 `hml` or `prod` and an operation; there is no Academy-mode toggle.
 
-The manual dispatch also exposes `deploy_auth_only`, which defaults to `false`.
-The workflow exports `TF_VAR_deploy_auth_only` as `true` only when this input is
-explicitly enabled and `BACKEND_INTEGRATION_URI` is empty. A configured backend
-URI always selects the full deployment path, even if the input is accidentally
-set to `true`.
+The manual dispatch exposes `deploy_auth_only`, which defaults to `false`; HML
+and production deployment runs derive a valid backend listener from matching
+Kubernetes state and always select the full deployment path.
 
 Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
 and `JWT_PUBLIC_KEY_PARAMETER_ARN`. The Lambda consumes matching private
 subnets from `repo-k8s-infra` state and the database security group from
 `repo-db-infra` state; these IDs must not be set as GitHub variables. Optional variables are
-`AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
-`BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN). VPC Link private subnet
-IDs and the internal ALB security group ID are read from the matching
-`repo-k8s-infra` remote state; they are not GitHub variables. No AWS resource
-IDs are stored in this repository.
+`AUTH_LAMBDA_ROLE_ARN`, and `AUTHORIZER_LAMBDA_ROLE_ARN`. VPC Link private
+subnet IDs, the internal ALB security group ID, and
+`internal_alb_listener_arn` are read from the matching `repo-k8s-infra` remote
+state; they are not GitHub variables. No AWS resource IDs are stored in this
+repository.
 
-`BACKEND_INTEGRATION_URI` is environment-scoped: HML must use the HML
-`internal_alb_listener_arn` output and production must use the corresponding
-production output from `repo-k8s-infra`. The production workflow fails when the
-value is missing or contains the known HML listener name `tc3-hml-internal`; it
-never falls back to HML or to an auth-only deployment.
+`BACKEND_INTEGRATION_URI` is derived during CI from the selected environment's
+`repo-k8s-infra` Terraform state output `internal_alb_listener_arn`. The
+workflow fails closed when that state or output is unavailable or is not a
+valid listener ARN. Production also rejects the known HML listener name
+`tc3-hml-internal`; it never falls back to HML or to an auth-only deployment.
 
 For AWS Academy/Lab, set the existing Lambda execution role as a non-secret
 environment variable:
