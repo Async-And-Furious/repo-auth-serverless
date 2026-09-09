@@ -107,10 +107,10 @@ jobs:
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
-      TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
-      # A configured backend is the full-deployment signal. Auth-only remains
-      # available only as an intentional dispatch with no backend URI.
-      TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
+      TFVARS_BACKEND_INTEGRATION_URI: ""
+      # The backend listener is populated from matching Kubernetes state below;
+      # deployment runs therefore always use the full integration path.
+      TFVARS_DEPLOY_AUTH_ONLY: "false"
       TFVARS_DESTROY_MODE: ${{ startsWith(inputs.operation, 'destroy') }}
       TF_INPUT: "false"
     steps:
@@ -159,6 +159,36 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~> 1.13"
+      - name: Read backend listener from Kubernetes Terraform state
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          state_file="$RUNNER_TEMP/repo-k8s-infra-${DEPLOY_ENVIRONMENT}.tfstate"
+          aws s3 cp \
+            "s3://tc3-tfstate-${account_id}/repo-k8s-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" \
+            "$state_file" --only-show-errors
+          python - "$state_file" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as file:
+              state = json.load(file)
+          value = state.get("outputs", {}).get("internal_alb_listener_arn", {}).get("value")
+          pattern = re.compile(
+              r"^arn:aws(?:-[a-z0-9-]+)?:elasticloadbalancing:[^:]+:\d{12}:"
+              r"listener/(?:app|net|gateway)/[^/]+/[0-9a-fA-F]+/[0-9a-fA-F]+$"
+          )
+          if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+              raise SystemExit(
+                  "repo-k8s-infra remote state has no valid internal_alb_listener_arn output"
+              )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"TFVARS_BACKEND_INTEGRATION_URI={value.strip()}\n")
+          PY
       - name: Write Terraform variables
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
@@ -204,14 +234,12 @@ jobs:
           PY
       - name: Validate production backend source
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') && env.DEPLOY_ENVIRONMENT == 'prod' }}
-        env:
-          BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
         run: |
-          if [ -z "${BACKEND_INTEGRATION_URI//[[:space:]]/}" ]; then
+          if [ -z "${TFVARS_BACKEND_INTEGRATION_URI//[[:space:]]/}" ]; then
             echo 'Production requires the production environment BACKEND_INTEGRATION_URI (the repo-k8s-infra prod internal_alb_listener_arn output).' >&2
             exit 1
           fi
-          case "$BACKEND_INTEGRATION_URI" in
+          case "$TFVARS_BACKEND_INTEGRATION_URI" in
             *tc3-hml-internal*)
               echo 'Refusing production deployment with the HML backend listener tc3-hml-internal; configure production BACKEND_INTEGRATION_URI from the prod Kubernetes state.' >&2
               exit 1

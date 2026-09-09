@@ -35,7 +35,11 @@ describe("delivery workflow contract", () => {
 
   it("does not allow production to use an HML backend listener", () => {
     expect(workflow).toContain("Validate production backend source");
-    expect(workflow).toContain("vars.BACKEND_INTEGRATION_URI");
+    expect(workflow).toContain("internal_alb_listener_arn");
+    expect(workflow).toContain("repo-k8s-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate");
+    expect(workflow).toContain("aws s3 cp");
+    expect(workflow).toContain("has no valid internal_alb_listener_arn output");
+    expect(workflow).not.toContain("TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}");
     expect(workflow).toContain("tc3-hml-internal");
     expect(workflow).toContain("production environment BACKEND_INTEGRATION_URI");
   });
