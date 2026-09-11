@@ -157,8 +157,9 @@ jobs:
           except Exception:
               rows = []
           for row in rows:
+              message = row.get("message", "")
               try:
-                  record = json.loads(row.get("message", ""))
+                  record = json.loads(message)
               except Exception:
                   record = {}
               if record.get("level") == "error" or str(record.get("event", "")).endswith("_failed"):
@@ -171,6 +172,14 @@ jobs:
                       "error_name": safe(record.get("error_name")),
                       "error_message": safe(record.get("error_message")),
                       "duration_ms": record.get("duration_ms"),
+                  }))
+              elif not record and any(word in message.lower() for word in ("error", "exception", "timeout", "accessdenied")):
+                  print(json.dumps({
+                      "timestamp": row.get("timestamp"),
+                      "log_stream": row.get("logStreamName"),
+                      "level": "error",
+                      "event": "runtime_error",
+                      "error_message": safe(message),
                   }))
           PY
             if test -s "$RUNNER_TEMP/auth-errors.json"; then
