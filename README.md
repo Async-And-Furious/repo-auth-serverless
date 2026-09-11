@@ -53,19 +53,25 @@ environments: pushes to `develop` deploy HML automatically, while production
 uses the protected `production` Environment approval. Manual runs select
 `hml` or `prod` and an operation; there is no Academy-mode toggle.
 
-The manual dispatch also exposes `deploy_auth_only`, which defaults to `false`.
-The workflow exports `TF_VAR_deploy_auth_only` as `true` only when this input is
-explicitly enabled and `BACKEND_INTEGRATION_URI` is empty. A configured backend
-URI always selects the full deployment path, even if the input is accidentally
-set to `true`.
+The manual dispatch exposes `deploy_auth_only`, which defaults to `false`; HML
+and production deployment runs derive a valid backend listener from matching
+Kubernetes state and always select the full deployment path.
 
 Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
-`JWT_PUBLIC_KEY_PARAMETER_ARN`, `DATABASE_SUBNET_IDS`, and
-`DATABASE_SECURITY_GROUP_IDS`. Optional variables are
-`AUTH_LAMBDA_ROLE_ARN`, `AUTHORIZER_LAMBDA_ROLE_ARN`,
-`BACKEND_INTEGRATION_URI` (an ALB/NLB listener ARN), `VPC_LINK_SUBNET_IDS`, and
-`VPC_LINK_SECURITY_GROUP_IDS`; list variables must be JSON arrays (for example,
-`["subnet-a","subnet-b"]`). No AWS resource IDs are stored in this repository.
+and `JWT_PUBLIC_KEY_PARAMETER_ARN`. The Lambda consumes matching private
+subnets from `repo-k8s-infra` state and the database security group from
+`repo-db-infra` state; these IDs must not be set as GitHub variables. Optional variables are
+`AUTH_LAMBDA_ROLE_ARN`, and `AUTHORIZER_LAMBDA_ROLE_ARN`. VPC Link private
+subnet IDs, the internal ALB security group ID, and
+`internal_alb_listener_arn` are read from the matching `repo-k8s-infra` remote
+state; they are not GitHub variables. No AWS resource IDs are stored in this
+repository.
+
+`BACKEND_INTEGRATION_URI` is derived during CI from the selected environment's
+`repo-k8s-infra` Terraform state output `internal_alb_listener_arn`. The
+workflow fails closed when that state or output is unavailable or is not a
+valid listener ARN. Production also rejects the known HML listener name
+`tc3-hml-internal`; it never falls back to HML or to an auth-only deployment.
 
 For AWS Academy/Lab, set the existing Lambda execution role as a non-secret
 environment variable:
@@ -133,14 +139,15 @@ backend, initialize the selected root, and run the usual Terraform commands.
 Use `infra/prod` only for plan/apply; run apply only after review.
 Provide the required variables through an uncommitted tfvars file.
 Integration values still required for a full deployment are the JWT private-key
-Secrets Manager ARN, database secret ARN, JWT public-key SSM parameter name and
-ARN, Lambda VPC subnet/security-group IDs, and (when `deploy_auth_only=false`)
-the ALB/NLB listener ARN as `backend_integration_uri` plus VPC Link
-subnet/security-group IDs. The API Gateway backend URI is not known by this
+Secrets Manager ARN, database secret ARN, and JWT public-key SSM parameter name
+and ARN. Lambda VPC networking is read from matching K8s/DB remote state, and
+When `deploy_auth_only=false`, the ALB/NLB listener ARN is supplied as
+`backend_integration_uri`. The API Gateway backend URI is not known by this
 repository and must be supplied by the Kubernetes/infrastructure deployment;
-it must be an ALB/NLB listener ARN, not a normal HTTP URL. `backend_integration_uri`
-must contain the listener ARN, plus VPC Link subnet/security-group IDs, to enable the
-RFC-003 protected EKS route and Lambda Authorizer when `deploy_auth_only=false`.
+it must be an ALB/NLB listener ARN, not a normal HTTP URL. The VPC Link uses
+the matching private subnets and `internal_alb_security_group_id` from
+`repo-k8s-infra` state to enable the RFC-003 protected EKS route and Lambda
+Authorizer.
 The Terraform module default `deploy_auth_only=true` is a safe local auth-only
 fallback. The workflow default is `false`; its backend URI rule above ensures
 that an orchestrated full deployment enables the protected backend path.
@@ -156,8 +163,8 @@ npm test
 JWT signing and API Gateway ownership follow accepted RFC-003 and RFC-006.
 Terraform also exposes environment-scoped API Gateway outputs: API id and
 endpoint, `/auth` route key, authorizer id, and protected route, integration,
-VPC Link, and backend URI values when full integration is enabled. No
-unsupported remote-state or cross-repository automation is assumed.
+VPC Link, and backend URI values when full integration is enabled. Lambda
+network inputs use the matching approved remote-state contracts.
 Customer lookup uses the fixed cross-repository schema contract:
 
 ```sql

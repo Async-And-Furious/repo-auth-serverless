@@ -23,8 +23,45 @@ function response(statusCode: number, body: Record<string, unknown>, correlation
   return { statusCode, headers: { "content-type": "application/json", "x-correlation-id": correlationId }, body: JSON.stringify(body) };
 }
 
-function log(level: "info" | "error", event: string, correlationId: string, startedAt: number): void {
-  console.log(JSON.stringify({ level, event, correlation_id: correlationId, duration_ms: Date.now() - startedAt }));
+export function sanitizeErrorMessage(value: unknown): string {
+  let message: string;
+  try {
+    message = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+  } catch {
+    message = "Unable to serialize error";
+  }
+
+  return message
+    .replace(/(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi, "[REDACTED_CONNECTION_STRING]")
+    .replace(/\bBearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+    .replace(/\b\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[.\s-]?\d{2}\b/g, "[REDACTED_CPF]")
+    .replace(/\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[REDACTED_JWT]")
+    .replace(/\b(?:password|passwd|secret|token|authorization|api[_-]?key|private[_-]?key|database_url|connection[_-]?string)\s*[:=]\s*[^\s,;}]+/gi, "[REDACTED_CREDENTIAL]")
+    .replace(/\b(?:DATABASE_URL|DATABASE_SECRET_ARN|JWT_PRIVATE_KEY_SECRET_ARN|JWT_PUBLIC_KEY_PARAM_NAME)\b/gi, "[REDACTED_CONFIG]")
+    .slice(0, 1000);
+}
+
+function safeErrorName(error: unknown): string {
+  const name = error instanceof Error ? error.name : error && typeof error === "object" ? error.constructor?.name : undefined;
+  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "UnknownError";
+}
+
+function log(level: "info" | "error", event: string, correlationId: string, startedAt: number, error?: unknown, requestId?: string): void {
+  const record: Record<string, unknown> = {
+    level,
+    event,
+    correlation_id: correlationId,
+    duration_ms: Date.now() - startedAt,
+  };
+  if (requestId) record.request_id = requestId;
+  if (process.env.DEPLOY_ENVIRONMENT) record.environment = process.env.DEPLOY_ENVIRONMENT;
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) record.function_name = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (process.env.AWS_LAMBDA_FUNCTION_VERSION) record.function_version = process.env.AWS_LAMBDA_FUNCTION_VERSION;
+  if (error !== undefined) {
+    record.error_name = safeErrorName(error);
+    record.error_message = sanitizeErrorMessage(error instanceof Error ? error.message : error);
+  }
+  (level === "error" ? console.error : console.log)(JSON.stringify(record));
 }
 
 export async function authenticateCustomer(
@@ -65,10 +102,13 @@ export async function authenticateCustomer(
       audience: contract.audience,
       subject_claim: contract.subject,
     });
-  } catch {
-    log("error", "authenticate_customer_failed", correlationId, startedAt);
+  } catch (error) {
+    log("error", "authenticate_customer_failed", correlationId, startedAt, error, event.requestContext.requestId);
     return response(500, { error: "internal_error", message: "Unable to authenticate" }, correlationId);
   }
 }
 
-export const handler = authenticateCustomer;
+export async function handler(event: Pick<APIGatewayProxyEvent, "body" | "headers" | "requestContext">, _context?: unknown): Promise<APIGatewayProxyResult> {
+  void _context;
+  return authenticateCustomer(event);
+}

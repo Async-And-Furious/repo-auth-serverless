@@ -30,6 +30,9 @@ resources could be implemented for real.
 - The Gateway's only responsibilities (`/auth` routes, authorizer wiring)
   live in `repo-auth-serverless` already — co-locating ownership avoids a
   cross-repo dependency for changes that only ever touch that repo.
+- The VPC Link uses the matching private subnet IDs and the internal ALB
+  security-group output from `repo-k8s-infra` remote state; Lambda/database
+  security groups are not reused for Gateway networking.
 - HTTP API + VPC Link + ALB is cheaper and simpler than REST API + NLB, and
   neither WAF-at-gateway nor usage plans nor request/response
   transformation are current requirements.
