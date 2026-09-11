@@ -28,7 +28,7 @@ async function connectionString(): Promise<string> {
   if (typeof host !== "string" || !host || typeof value.username !== "string" || typeof value.password !== "string") {
     throw new Error("database secret has no connection details");
   }
-  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}:${String(port)}/${String(database)}?sslmode=require`;
+  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}:${String(port)}/${String(database)}?sslmode=require&uselibpqcompat=true`;
 }
 
 export async function findCustomer(cpf: string): Promise<Customer | null> {

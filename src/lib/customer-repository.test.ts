@@ -71,7 +71,7 @@ WHERE "documento" = $1
     await expect(findCustomerWithFallback("52998224725")).resolves.toBeNull();
 
     expect(pg.Pool).toHaveBeenCalledWith({
-      connectionString: "postgresql://user:password@database.example:5432/app?sslmode=require",
+      connectionString: "postgresql://user:password@database.example:5432/app?sslmode=require&uselibpqcompat=true",
       max: 2,
     });
   });
