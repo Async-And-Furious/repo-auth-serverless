@@ -47,4 +47,47 @@ describe("CPF authentication", () => {
     const result = await authenticateCustomer({ body: "{}", headers: { "x-correlation-id": "   " }, requestContext: { requestId: "api-request-1" } as never }, vi.fn());
     expect(result.headers?.["x-correlation-id"]).toBe("api-request-1");
   });
+
+  it("logs a classified, redacted database failure while keeping the 500 response generic", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cpf = "529.982.247-25";
+    const secret = "postgresql://user:password@db.example/test";
+    const result = await authenticateCustomer(
+      { body: JSON.stringify({ cpf }), headers: {}, requestContext: { requestId: "request-db-1" } as never },
+      async () => {
+        throw new Error(`query failed for ${cpf}: DATABASE_URL=${secret}; Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.signature password=hunter2`);
+      },
+    );
+
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body)).toEqual({ error: "internal_error", message: "Unable to authenticate" });
+    const log = JSON.parse(errorLog.mock.calls[0]?.[0] as string) as Record<string, unknown>;
+    expect(log).toMatchObject({ event: "authenticate_customer_failed", error_name: "Error", correlation_id: "request-db-1", request_id: "request-db-1" });
+    expect(String(log.error_message)).toContain("[REDACTED_CREDENTIAL]");
+    expect(String(log.error_message)).toContain("[REDACTED_CPF]");
+    expect(String(log.error_message)).not.toContain(cpf);
+    expect(String(log.error_message)).not.toContain(secret);
+    expect(String(log.error_message)).not.toContain("DATABASE_URL");
+    expect(String(log.error_message)).not.toContain("Bearer eyJ");
+    expect(String(log.error_message)).not.toContain("hunter2");
+    errorLog.mockRestore();
+  });
+
+  it("logs a redacted authentication failure without exposing JWT or secrets", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await authenticateCustomer(
+      { body: JSON.stringify({ cpf: "529.982.247-25" }), headers: {}, requestContext: { requestId: "request-auth-1" } as never },
+      async () => ({ id: "c-1", active: true }),
+      async () => {
+        throw new Error("JWT signing failed: Bearer header-token password=secret-password");
+      },
+    );
+
+    expect(result.statusCode).toBe(500);
+    const log = JSON.parse(errorLog.mock.calls[0]?.[0] as string) as Record<string, unknown>;
+    expect(log).toMatchObject({ error_name: "Error", correlation_id: "request-auth-1" });
+    expect(String(log.error_message)).not.toContain("header-token");
+    expect(String(log.error_message)).not.toContain("secret-password");
+    errorLog.mockRestore();
+  });
 });
