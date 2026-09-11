@@ -57,6 +57,46 @@ jobs:
           test -n "$api_endpoint" && test "$api_endpoint" != "None"
           printf 'API_ENDPOINT=%s\nAUTH_FUNCTION_NAME=tc3-auth-%s-auth\n' \
             "$api_endpoint" "$ENVIRONMENT" >> "$GITHUB_ENV"
+      - name: Inspect bounded Lambda and database connectivity configuration
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          config_file="$RUNNER_TEMP/lambda-config.json"
+          aws lambda get-function-configuration --function-name "$AUTH_FUNCTION_NAME" --output json > "$config_file"
+          python - "$config_file" <<'PY'
+          import json
+          import sys
+          config = json.load(open(sys.argv[1], encoding="utf-8"))
+          vpc = config.get("VpcConfig", {})
+          print(json.dumps({
+              "lambda_state": config.get("State"),
+              "last_update_status": config.get("LastUpdateStatus"),
+              "timeout_seconds": config.get("Timeout"),
+              "subnet_count": len(vpc.get("SubnetIds", [])),
+              "security_group_count": len(vpc.get("SecurityGroupIds", [])),
+              "database_secret_configured": bool(config.get("Environment", {}).get("Variables", {}).get("DATABASE_SECRET_ARN")),
+          }))
+          PY
+          secret_arn="$(python - "$config_file" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8")).get("Environment", {}).get("Variables", {}).get("DATABASE_SECRET_ARN", ""))
+          PY
+          )"
+          if [ -n "$secret_arn" ]; then
+            aws secretsmanager get-secret-value --secret-id "$secret_arn" --query SecretString --output text > "$RUNNER_TEMP/database-secret.json"
+            python - "$RUNNER_TEMP/database-secret.json" <<'PY'
+          import json
+          import sys
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(json.dumps({"database_secret_keys": sorted(value) if isinstance(value, dict) else []}))
+          PY
+          fi
+          aws rds describe-db-instances --db-instance-identifier "tc3-db-${ENVIRONMENT}" \
+            --query 'DBInstances[0].{status:DBInstanceStatus,port:Endpoint.Port,public:PubliclyAccessible,sg_count:length(VpcSecurityGroups)}' \
+            --output json
       - name: Require approved seeded CPF secret
         shell: bash
         run: |
