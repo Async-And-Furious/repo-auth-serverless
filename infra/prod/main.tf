@@ -41,6 +41,30 @@ locals {
   vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
 }
 
+resource "aws_security_group" "auth_lambda" {
+  count       = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  name        = "${var.name_prefix}-lambda"
+  description = "Private egress for the auth Lambda"
+  vpc_id      = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/8"]
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "auth_to_database" {
+  count                        = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  security_group_id            = local.database_security_group_ids[0]
+  referenced_security_group_id = aws_security_group.auth_lambda[0].id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "Postgres from the auth Lambda"
+}
+
 resource "aws_security_group" "secrets_manager_endpoint" {
   count       = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
   name        = "${var.name_prefix}-secrets-manager-endpoint"
@@ -52,7 +76,7 @@ resource "aws_security_group" "secrets_manager_endpoint" {
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
-    security_groups = local.database_security_group_ids
+    security_groups = [aws_security_group.auth_lambda[0].id]
   }
 
   egress {
@@ -126,7 +150,7 @@ resource "aws_lambda_function" "auth" {
     for_each = var.auth_lambda_vpc_enabled ? [1] : []
     content {
       subnet_ids         = local.database_subnet_ids
-      security_group_ids = local.database_security_group_ids
+      security_group_ids = [aws_security_group.auth_lambda[0].id]
     }
   }
   environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, DATABASE_HOST = var.database_host, DATABASE_PORT = tostring(var.database_port), DATABASE_NAME = var.database_name, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }
