@@ -41,6 +41,38 @@ locals {
   vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
 }
 
+resource "aws_security_group" "secrets_manager_endpoint" {
+  count       = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  name        = "${var.name_prefix}-secrets-manager-endpoint"
+  description = "Private Secrets Manager access for the auth Lambda"
+  vpc_id      = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+
+  ingress {
+    description     = "Secrets Manager HTTPS from auth Lambda"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = local.database_security_group_ids
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_vpc_endpoint" "secrets_manager" {
+  count               = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  vpc_id              = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.database_subnet_ids
+  security_group_ids  = [aws_security_group.secrets_manager_endpoint[0].id]
+  private_dns_enabled = true
+}
+
 resource "aws_iam_role" "auth" {
   count              = local.create_auth_lambda_role ? 1 : 0
   name               = "${var.name_prefix}-auth"
