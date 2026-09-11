@@ -102,7 +102,7 @@ jobs:
       TFVARS_JWT_ISSUER: ${{ vars.JWT_ISSUER || 'repo-auth-serverless' }}
       TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE || 'async-furious-project' }}
       TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
-      TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
+      TFVARS_DATABASE_SECRET_ARN: ""
       TFVARS_ACADEMY_MODE: "false"
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
@@ -188,6 +188,34 @@ jobs:
               )
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
               env_file.write(f"TFVARS_BACKEND_INTEGRATION_URI={value.strip()}\n")
+          PY
+      - name: Read database secret ARN from managed database state
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          state_file="$RUNNER_TEMP/repo-db-infra-${DEPLOY_ENVIRONMENT}.tfstate"
+          aws s3 cp \
+            "s3://tc3-tfstate-${account_id}/repo-db-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" \
+            "$state_file" --only-show-errors
+          python - "$state_file" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          state = json.load(open(sys.argv[1], encoding="utf-8"))
+          outputs = state.get("outputs", {})
+          value = (
+              outputs.get("db_connection_secret_arn", {}).get("value")
+              or outputs.get("db_secret_arn", {}).get("value")
+          )
+          pattern = re.compile(r"^arn:aws(?:-[a-z0-9-]+)?:secretsmanager:[^:]+:\d{12}:secret:.+$")
+          if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+              raise SystemExit("repo-db-infra remote state has no valid database secret ARN output")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"TFVARS_DATABASE_SECRET_ARN={value.strip()}\n")
           PY
       - name: Write Terraform variables
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
