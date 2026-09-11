@@ -69,14 +69,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$API_ENDPOINT" && test -n "$SEEDED_CPF"
-          response="$(curl --fail-with-body --silent --show-error --max-time 20 \
+          response_file="$RUNNER_TEMP/auth-response.json"
+          set +e
+          http_status="$(curl --silent --show-error --max-time 20 \
             -H 'content-type: application/json' \
             -H "x-correlation-id: github-${GITHUB_RUN_ID}" \
             -d "$(python -c 'import json,os; print(json.dumps({"cpf": os.environ["SEEDED_CPF"]}))')" \
-            "$API_ENDPOINT/auth")"
-          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$response")"
-          TOKEN="$token" python -c 'import os; parts=os.environ["TOKEN"].split("."); assert len(parts)==3 and all(parts), "invalid JWT"'
+            --output "$response_file" --write-out '%{http_code}' "$API_ENDPOINT/auth")"
+          curl_exit=$?
+          set -e
+          token_present="$(python - "$response_file" <<'PY'
+          import json
+          import sys
+          try:
+              value = json.load(open(sys.argv[1], encoding="utf-8")).get("token", "")
+              valid = isinstance(value, str) and len(value.split(".")) == 3 and all(value.split("."))
+          except Exception:
+              valid = False
+          print(str(valid).lower())
+          PY
+          )"
+          echo "HTTP_STATUS=$http_status TOKEN_PRESENT=$token_present CURL_EXIT=$curl_exit"
+          test "$curl_exit" -eq 0 && test "$http_status" = "200" && test "$token_present" = "true"
           echo 'Seeded CPF authentication returned a structurally valid JWT.'
       - name: Collect bounded sanitized CloudWatch diagnostics
         if: always()
@@ -85,7 +99,45 @@ jobs:
           set -euo pipefail
           test -n "$AUTH_FUNCTION_NAME" || exit 0
           start_ms="$(( $(date +%s) * 1000 - 900000 ))"
-          aws logs filter-log-events --log-group-name "/aws/lambda/$AUTH_FUNCTION_NAME" \
-            --start-time "$start_ms" --limit 50 --output json \
-            | python -c 'import json,re,sys; rows=json.load(sys.stdin).get("events", []); [print(json.dumps({"timestamp":r.get("timestamp"),"log_stream":r.get("logStreamName"),"message":re.sub(r"(cpf|token|password|secret|authorization)[^,; ]*",r"\1=[REDACTED]",r.get("message", ""))[:1000]})) for r in rows]' \
-            || echo 'CloudWatch diagnostics unavailable; deployment result is retained.'
+          for attempt in 1 2 3 4 5 6; do
+            aws logs filter-log-events --log-group-name "/aws/lambda/$AUTH_FUNCTION_NAME" \
+              --start-time "$start_ms" --limit 50 --output json > "$RUNNER_TEMP/auth-logs.json" || true
+            python - "$RUNNER_TEMP/auth-logs.json" <<'PY' > "$RUNNER_TEMP/auth-errors.json"
+          import json
+          import re
+          import sys
+
+          def safe(value):
+              text = str(value or "")
+              text = re.sub(r"\b\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[.\s-]?\d{2}\b", "[REDACTED_CPF]", text)
+              text = re.sub(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[REDACTED_JWT]", text)
+              text = re.sub(r"(?i)\b(password|secret|token|authorization|api[_-]?key)\s*[:=]\s*[^\s,;}]+", r"\1=[REDACTED]", text)
+              return text[:1000]
+
+          try:
+              rows = json.load(open(sys.argv[1], encoding="utf-8")).get("events", [])
+          except Exception:
+              rows = []
+          for row in rows:
+              try:
+                  record = json.loads(row.get("message", ""))
+              except Exception:
+                  record = {}
+              if record.get("level") == "error" or str(record.get("event", "")).endswith("_failed"):
+                  print(json.dumps({
+                      "timestamp": row.get("timestamp"),
+                      "log_stream": row.get("logStreamName"),
+                      "level": record.get("level"),
+                      "event": record.get("event"),
+                      "correlation_id": safe(record.get("correlation_id")),
+                      "error_name": safe(record.get("error_name")),
+                      "error_message": safe(record.get("error_message")),
+                      "duration_ms": record.get("duration_ms"),
+                  }))
+          PY
+            if test -s "$RUNNER_TEMP/auth-errors.json"; then
+              cat "$RUNNER_TEMP/auth-errors.json"
+              break
+            fi
+            test "$attempt" -eq 6 || sleep 5
+          done
