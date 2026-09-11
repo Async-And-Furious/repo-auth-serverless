@@ -35,16 +35,13 @@ jobs:
         run: |
           set -euo pipefail
           start_ms=$(( ($(date +%s) - 1800) * 1000 ))
-          filter='ERROR || Error || Exception || Prisma || P1001 || P1000 || connection || timeout || Unable || failed'
-
           for suffix in auth authorizer; do
             group="/aws/lambda/tc3-auth-${DEPLOY_ENVIRONMENT}-${suffix}"
             echo "[$group]"
             events="$(aws logs filter-log-events \
               --log-group-name "$group" \
               --start-time "$start_ms" \
-              --filter-pattern "$filter" \
-              --limit 25 \
+              --limit 100 \
               --output json)"
             EVENTS="$events" python - "$group" <<'PY'
           import json
