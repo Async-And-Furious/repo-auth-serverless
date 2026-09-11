@@ -132,7 +132,7 @@ resource "aws_lambda_function" "auth" {
       security_group_ids = local.database_security_group_ids
     }
   }
-  environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }
+  environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, DATABASE_HOST = var.database_host, DATABASE_PORT = tostring(var.database_port), DATABASE_NAME = var.database_name, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }
 }
 resource "aws_lambda_function" "authorizer" {
   function_name    = "${var.name_prefix}-authorizer"
