@@ -35,9 +35,7 @@ jobs:
       contents: read
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      API_ENDPOINT: ${{ vars.AUTH_API_ENDPOINT }}
       SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
-      AUTH_FUNCTION_NAME: ${{ vars.AUTH_FUNCTION_NAME }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure AWS credentials
@@ -47,6 +45,18 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Discover deployed auth endpoint
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          api_endpoint="$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='tc3-auth-${ENVIRONMENT}'].ApiEndpoint | [0]" \
+            --output text)"
+          test -n "$api_endpoint" && test "$api_endpoint" != "None"
+          printf 'API_ENDPOINT=%s\nAUTH_FUNCTION_NAME=tc3-auth-%s-auth\n' \
+            "$api_endpoint" "$ENVIRONMENT" >> "$GITHUB_ENV"
       - name: Call seeded CPF and verify JWT without printing it
         shell: bash
         run: |
