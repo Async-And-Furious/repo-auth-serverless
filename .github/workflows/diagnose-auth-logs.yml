@@ -1,0 +1,75 @@
+name: Diagnose auth logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to inspect
+        required: true
+        type: choice
+        options: [hml, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ env.AWS_SESSION_TOKEN }}
+      - name: Query bounded error diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          start_ms=$(( ($(date +%s) - 1800) * 1000 ))
+          filter='ERROR || Error || Exception || Prisma || P1001 || P1000 || connection || timeout || Unable || failed'
+
+          for suffix in auth authorizer; do
+            group="/aws/lambda/tc3-auth-${DEPLOY_ENVIRONMENT}-${suffix}"
+            echo "[$group]"
+            events="$(aws logs filter-log-events \
+              --log-group-name "$group" \
+              --start-time "$start_ms" \
+              --filter-pattern "$filter" \
+              --limit 25 \
+              --output json)"
+            EVENTS="$events" python - "$group" <<'PY'
+          import json
+          import os
+          import re
+          from datetime import datetime, timezone
+
+          data = json.loads(os.environ["EVENTS"])
+          sensitive = re.compile(
+              r"(?i)(bearer\s+|jwt\s*[:=]\s*|token\s*[:=]\s*|password\s*[:=]\s*|"
+              r"secret\s*[:=]\s*|cpf\s*[:=]\s*)[^\s,;}\]]+"
+          )
+          jwt = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+          cpf = re.compile(r"\b\d{3}[.\-]?\d{3}[.\-]?\d{3}[.\-]?\d{2}\b")
+          error = re.compile(r"(?i)ERROR|Exception|Prisma|P1001|P1000|connection|timeout|Unable|failed")
+
+          for event in data.get("events", [])[:25]:
+              message = str(event.get("message", "")).replace("\r", " ").replace("\n", " ")
+              if not error.search(message):
+                  continue
+              message = sensitive.sub(lambda match: match.group(1) + "[REDACTED]", message)
+              message = jwt.sub("[REDACTED]", message)
+              message = cpf.sub("[REDACTED]", message)
+              message = message[:1000]
+              timestamp = datetime.fromtimestamp(event.get("timestamp", 0) / 1000, timezone.utc).isoformat()
+              print(f"{timestamp} {message}")
+          PY
+          done
