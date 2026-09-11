@@ -202,13 +202,18 @@ jobs:
                   record = json.loads(message)
               except Exception:
                   record = {}
-              if record.get("level") == "error" or str(record.get("event", "")).endswith("_failed"):
+              if (
+                  record.get("level") == "error"
+                  or str(record.get("event", "")).endswith("_failed")
+                  or str(record.get("event", "")).endswith("_rejected")
+              ):
                   print(json.dumps({
                       "timestamp": row.get("timestamp"),
                       "log_stream": row.get("logStreamName"),
                       "level": record.get("level"),
                       "event": record.get("event"),
                       "correlation_id": safe(record.get("correlation_id")),
+                      "rejection_reason": record.get("rejection_reason"),
                       "error_name": safe(record.get("error_name")),
                       "error_message": safe(record.get("error_message")),
                       "duration_ms": record.get("duration_ms"),
