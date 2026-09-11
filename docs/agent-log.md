@@ -1,5 +1,15 @@
 # Agent log
 
+## 2026-09-11 — Safe authentication failure diagnostics
+
+- Added structured error fields to `authenticate_customer_failed`, including
+  safe error name, redacted message, correlation/request IDs, and available
+  Lambda deployment context. Request bodies, CPF values, tokens, passwords,
+  connection strings, and secrets remain excluded from logs.
+- Added DB and JWT failure redaction coverage while preserving the generic HTTP
+  500 response. Validation passed: focused tests (11), full suite (32),
+  typecheck, and build. No AWS apply or destroy was run.
+
 ## 2026-09-09 — Kubernetes remote-state backend listener
 
 - CI now reads the selected HML/production `internal_alb_listener_arn` directly
