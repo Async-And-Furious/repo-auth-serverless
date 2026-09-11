@@ -94,6 +94,42 @@ jobs:
             exit 1
           fi
           echo 'Seeded CPF authentication returned a structurally valid JWT.'
+      - name: Direct Lambda bounded diagnostic
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AUTH_FUNCTION_NAME" || exit 0
+          payload_file="$RUNNER_TEMP/auth-diagnostic-payload.json"
+          response_file="$RUNNER_TEMP/auth-diagnostic-response.json"
+          python - "$payload_file" <<'PY'
+          import json
+          import os
+          import sys
+          json.dump({
+              "version": "2.0",
+              "routeKey": "POST /auth",
+              "rawPath": "/auth",
+              "headers": {"content-type": "application/json", "x-correlation-id": "github-diagnostic"},
+              "requestContext": {"requestId": "github-diagnostic"},
+              "body": json.dumps({"cpf": os.environ["SEEDED_CPF"]}),
+          }, open(sys.argv[1], "w", encoding="utf-8"))
+          PY
+          aws lambda invoke --function-name "$AUTH_FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out --payload "fileb://$payload_file" \
+            "$response_file" >/dev/null
+          python - "$response_file" <<'PY'
+          import json
+          import sys
+          try:
+              result = json.load(open(sys.argv[1], encoding="utf-8"))
+              body = json.loads(result.get("body", "{}")) if isinstance(result.get("body"), str) else result.get("body", {})
+              token = body.get("token", "") if isinstance(body, dict) else ""
+              token_present = isinstance(token, str) and len(token.split(".")) == 3 and all(token.split("."))
+              print(f"DIRECT_STATUS={result.get('statusCode', 'unknown')} DIRECT_TOKEN_PRESENT={str(token_present).lower()}")
+          except Exception:
+              print("DIRECT_STATUS=unparseable DIRECT_TOKEN_PRESENT=false")
+          PY
       - name: Collect bounded sanitized CloudWatch diagnostics
         if: always()
         shell: bash
