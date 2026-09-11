@@ -90,7 +90,9 @@ jobs:
           PY
           )"
           echo "HTTP_STATUS=$http_status TOKEN_PRESENT=$token_present CURL_EXIT=$curl_exit"
-          test "$curl_exit" -eq 0 && test "$http_status" = "200" && test "$token_present" = "true"
+          if ! { test "$curl_exit" -eq 0 && test "$http_status" = "200" && test "$token_present" = "true"; }; then
+            exit 1
+          fi
           echo 'Seeded CPF authentication returned a structurally valid JWT.'
       - name: Collect bounded sanitized CloudWatch diagnostics
         if: always()
