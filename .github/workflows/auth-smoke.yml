@@ -57,6 +57,14 @@ jobs:
           test -n "$api_endpoint" && test "$api_endpoint" != "None"
           printf 'API_ENDPOINT=%s\nAUTH_FUNCTION_NAME=tc3-auth-%s-auth\n' \
             "$api_endpoint" "$ENVIRONMENT" >> "$GITHUB_ENV"
+      - name: Require approved seeded CPF secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SEEDED_CPF:-}" ]; then
+            echo '::error title=Missing smoke credential::Configure the SEEDED_CPF secret in both the hml and production GitHub Environments; do not commit or print the CPF.'
+            exit 1
+          fi
       - name: Call seeded CPF and verify JWT without printing it
         shell: bash
         run: |
