@@ -1,0 +1,73 @@
+name: Auth deploy and smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy and test
+        required: true
+        type: choice
+        options: [hml, prod]
+      confirm:
+        description: Required only for production
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/ci.yml
+    with:
+      environment: ${{ inputs.environment }}
+      operation: apply
+      deploy_auth_only: false
+      confirm: ${{ inputs.confirm }}
+    secrets: inherit
+
+  request:
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'prod' && 'production' || 'hml' }}
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      API_ENDPOINT: ${{ vars.AUTH_API_ENDPOINT }}
+      SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
+      AUTH_FUNCTION_NAME: ${{ vars.AUTH_FUNCTION_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Call seeded CPF and verify JWT without printing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$API_ENDPOINT" && test -n "$SEEDED_CPF"
+          response="$(curl --fail-with-body --silent --show-error --max-time 20 \
+            -H 'content-type: application/json' \
+            -H "x-correlation-id: github-${GITHUB_RUN_ID}" \
+            -d "$(python -c 'import json,os; print(json.dumps({"cpf": os.environ["SEEDED_CPF"]}))')" \
+            "$API_ENDPOINT/auth")"
+          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$response")"
+          TOKEN="$token" python -c 'import os; parts=os.environ["TOKEN"].split("."); assert len(parts)==3 and all(parts), "invalid JWT"'
+          echo 'Seeded CPF authentication returned a structurally valid JWT.'
+      - name: Collect bounded sanitized CloudWatch diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AUTH_FUNCTION_NAME" || exit 0
+          start_ms="$(( $(date +%s) * 1000 - 900000 ))"
+          aws logs filter-log-events --log-group-name "/aws/lambda/$AUTH_FUNCTION_NAME" \
+            --start-time "$start_ms" --limit 50 --output json \
+            | python -c 'import json,re,sys; rows=json.load(sys.stdin).get("events", []); [print(json.dumps({"timestamp":r.get("timestamp"),"log_stream":r.get("logStreamName"),"message":re.sub(r"(cpf|token|password|secret|authorization)[^,; ]*",r"\1=[REDACTED]",r.get("message", ""))[:1000]})) for r in rows]' \
+            || echo 'CloudWatch diagnostics unavailable; deployment result is retained.'
