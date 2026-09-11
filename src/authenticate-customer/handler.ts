@@ -109,5 +109,6 @@ export async function authenticateCustomer(
 }
 
 export async function handler(event: Pick<APIGatewayProxyEvent, "body" | "headers" | "requestContext">, _context?: unknown): Promise<APIGatewayProxyResult> {
+  void _context;
   return authenticateCustomer(event);
 }
