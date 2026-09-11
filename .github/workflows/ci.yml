@@ -16,21 +16,10 @@ on:
         required: true
         type: boolean
       confirm:
-        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        description: Type "APPLY PROD" for production apply, "DESTROY HML" for HML destroy, or "DESTROY PROD" for production destroy
         required: false
         default: ""
         type: string
-    secrets:
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
-      AWS_SESSION_TOKEN:
-        required: false
-      JWT_PRIVATE_KEY_SECRET_ARN:
-        required: false
-      DATABASE_SECRET_ARN:
-        required: false
   pull_request:
   push:
     branches: [main, develop]
@@ -52,7 +41,7 @@ on:
         type: boolean
         default: false
       confirm:
-        description: Type "APPLY PROD" for production apply or "DESTROY HML" for HML destroy
+        description: Type "APPLY PROD" for production apply, "DESTROY HML" for HML destroy, or "DESTROY PROD" for production destroy
         required: false
         default: ""
         type: string
@@ -113,19 +102,19 @@ jobs:
       TFVARS_JWT_ISSUER: ${{ vars.JWT_ISSUER || 'repo-auth-serverless' }}
       TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE || 'async-furious-project' }}
       TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
-      TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
+      TFVARS_DATABASE_SECRET_ARN: ""
+      TFVARS_DATABASE_HOST: ""
+      TFVARS_DATABASE_PORT: ""
+      TFVARS_DATABASE_NAME: ""
       TFVARS_ACADEMY_MODE: "false"
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
       TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN: ${{ vars.AUTHORIZER_LAMBDA_ROLE_ARN }}
-      TFVARS_DATABASE_SUBNET_IDS: ${{ vars.DATABASE_SUBNET_IDS }}
-      TFVARS_DATABASE_SECURITY_GROUP_IDS: ${{ vars.DATABASE_SECURITY_GROUP_IDS }}
-      TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}
-      # A configured backend is the full-deployment signal. Auth-only remains
-      # available only as an intentional dispatch with no backend URI.
-      TFVARS_DEPLOY_AUTH_ONLY: ${{ inputs.deploy_auth_only == true && vars.BACKEND_INTEGRATION_URI == '' }}
-      TFVARS_VPC_LINK_SUBNET_IDS: ${{ vars.VPC_LINK_SUBNET_IDS }}
-      TFVARS_VPC_LINK_SECURITY_GROUP_IDS: ${{ vars.VPC_LINK_SECURITY_GROUP_IDS }}
+      TFVARS_BACKEND_INTEGRATION_URI: ""
+      # The backend listener is populated from matching Kubernetes state below;
+      # deployment runs therefore always use the full integration path.
+      TFVARS_DEPLOY_AUTH_ONLY: "false"
+      TFVARS_DESTROY_MODE: ${{ startsWith(inputs.operation, 'destroy') }}
       TF_INPUT: "false"
     steps:
       - name: Guard production apply
@@ -134,18 +123,25 @@ jobs:
           [ "$CONFIRM" = "APPLY PROD" ] || { echo 'Production apply requires confirm="APPLY PROD".' >&2; exit 1; }
         env:
           CONFIRM: ${{ inputs.confirm }}
-      - name: Guard HML destroy
+      - name: Guard destructive operation
         if: startsWith(env.DEPLOY_OPERATION, 'destroy')
         run: |
-          [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML.' >&2; exit 1; }
-          if [ "$OPERATION" = "destroy" ]; then
-            [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+          if [ "$ENVIRONMENT" = "prod" ]; then
+            [ "$EVENT_NAME" = "workflow_dispatch" ] || { echo 'Production destroy is allowed only through workflow_dispatch.' >&2; exit 1; }
+            [ "$CONFIRM" = "DESTROY PROD" ] || { echo 'Production destroy requires confirm="DESTROY PROD".' >&2; exit 1; }
+          else
+            [ "$ENVIRONMENT" = "hml" ] || { echo 'Destroy operations are restricted to HML or explicitly dispatched production.' >&2; exit 1; }
+            if [ "$OPERATION" = "destroy" ]; then
+              [ "$CONFIRM" = "DESTROY HML" ] || { echo 'Destroy requires confirm="DESTROY HML".' >&2; exit 1; }
+            fi
           fi
         env:
           DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
+          ACADEMY_MODE: ${{ env.DEPLOY_ACADEMY_MODE }}
           CONFIRM: ${{ inputs.confirm }}
           ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
           OPERATION: ${{ env.DEPLOY_OPERATION }}
+          EVENT_NAME: ${{ github.event_name }}
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
@@ -166,6 +162,72 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~> 1.13"
+      - name: Read backend listener from Kubernetes Terraform state
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          state_file="$RUNNER_TEMP/repo-k8s-infra-${DEPLOY_ENVIRONMENT}.tfstate"
+          aws s3 cp \
+            "s3://tc3-tfstate-${account_id}/repo-k8s-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" \
+            "$state_file" --only-show-errors
+          python - "$state_file" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as file:
+              state = json.load(file)
+          value = state.get("outputs", {}).get("internal_alb_listener_arn", {}).get("value")
+          pattern = re.compile(
+              r"^arn:aws(?:-[a-z0-9-]+)?:elasticloadbalancing:[^:]+:\d{12}:"
+              r"listener/(?:app|net|gateway)/[^/]+/[0-9a-fA-F]+/[0-9a-fA-F]+$"
+          )
+          if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+              raise SystemExit(
+                  "repo-k8s-infra remote state has no valid internal_alb_listener_arn output"
+              )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"TFVARS_BACKEND_INTEGRATION_URI={value.strip()}\n")
+          PY
+      - name: Read database secret ARN from managed database state
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          state_file="$RUNNER_TEMP/repo-db-infra-${DEPLOY_ENVIRONMENT}.tfstate"
+          aws s3 cp \
+            "s3://tc3-tfstate-${account_id}/repo-db-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" \
+            "$state_file" --only-show-errors
+          python - "$state_file" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          state = json.load(open(sys.argv[1], encoding="utf-8"))
+          outputs = state.get("outputs", {})
+          value = (
+              outputs.get("db_connection_secret_arn", {}).get("value")
+              or outputs.get("db_secret_arn", {}).get("value")
+          )
+          host = outputs.get("db_host", {}).get("value")
+          port = outputs.get("db_port", {}).get("value")
+          name = outputs.get("db_name", {}).get("value")
+          pattern = re.compile(r"^arn:aws(?:-[a-z0-9-]+)?:secretsmanager:[^:]+:\d{12}:secret:.+$")
+          if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+              raise SystemExit("repo-db-infra remote state has no valid database secret ARN output")
+          if not isinstance(host, str) or not host.strip() or not isinstance(port, (int, float)) or not isinstance(name, str) or not name.strip():
+              raise SystemExit("repo-db-infra remote state has incomplete database connection outputs")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"TFVARS_DATABASE_SECRET_ARN={value.strip()}\n")
+              env_file.write(f"TFVARS_DATABASE_HOST={host.strip()}\n")
+              env_file.write(f"TFVARS_DATABASE_PORT={int(port)}\n")
+              env_file.write(f"TFVARS_DATABASE_NAME={name.strip()}\n")
+          PY
       - name: Write Terraform variables
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
@@ -183,16 +245,6 @@ jobs:
           def number(name):
               return int(value(name))
 
-          def string_list(name):
-              raw = value(name).strip()
-              if not raw:
-                  return []
-              try:
-                  parsed = json.loads(raw)
-                  return parsed if isinstance(parsed, list) else [str(parsed)]
-              except json.JSONDecodeError:
-                  return [item.strip() for item in raw.split(",") if item.strip()]
-
           variables = {
               "aws_region": value("TFVARS_AWS_REGION"),
               "lambda_package_path": value("TFVARS_LAMBDA_PACKAGE_PATH"),
@@ -203,16 +255,16 @@ jobs:
               "jwt_audience": value("TFVARS_JWT_AUDIENCE"),
               "jwt_expires_in": number("TFVARS_JWT_EXPIRES_IN"),
               "database_secret_arn": value("TFVARS_DATABASE_SECRET_ARN"),
+              "database_host": value("TFVARS_DATABASE_HOST"),
+              "database_port": number("TFVARS_DATABASE_PORT"),
+              "database_name": value("TFVARS_DATABASE_NAME"),
               "academy_mode": boolean("TFVARS_ACADEMY_MODE"),
               "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
               "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
               "authorizer_lambda_role_arn": value("TFVARS_AUTHORIZER_LAMBDA_ROLE_ARN"),
-              "database_subnet_ids": string_list("TFVARS_DATABASE_SUBNET_IDS"),
-              "database_security_group_ids": string_list("TFVARS_DATABASE_SECURITY_GROUP_IDS"),
               "backend_integration_uri": value("TFVARS_BACKEND_INTEGRATION_URI"),
               "deploy_auth_only": boolean("TFVARS_DEPLOY_AUTH_ONLY"),
-              "vpc_link_subnet_ids": string_list("TFVARS_VPC_LINK_SUBNET_IDS"),
-              "vpc_link_security_group_ids": string_list("TFVARS_VPC_LINK_SECURITY_GROUP_IDS"),
+              "destroy_mode": boolean("TFVARS_DESTROY_MODE"),
           }
           missing = [name for name in ("jwt_private_key_secret_arn", "jwt_public_key_parameter_name",
                                        "jwt_public_key_parameter_arn", "database_secret_arn")
@@ -222,6 +274,19 @@ jobs:
           with open("terraform.auto.tfvars.json", "w", encoding="utf-8") as file:
               json.dump(variables, file)
           PY
+      - name: Validate production backend source
+        if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') && env.DEPLOY_ENVIRONMENT == 'prod' }}
+        run: |
+          if [ -z "${TFVARS_BACKEND_INTEGRATION_URI//[[:space:]]/}" ]; then
+            echo 'Production requires the production environment BACKEND_INTEGRATION_URI (the repo-k8s-infra prod internal_alb_listener_arn output).' >&2
+            exit 1
+          fi
+          case "$TFVARS_BACKEND_INTEGRATION_URI" in
+            *tc3-hml-internal*)
+              echo 'Refusing production deployment with the HML backend listener tc3-hml-internal; configure production BACKEND_INTEGRATION_URI from the prod Kubernetes state.' >&2
+              exit 1
+              ;;
+          esac
       - name: Bootstrap Terraform state backend
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         shell: bash
@@ -230,11 +295,14 @@ jobs:
         id: destroy_state
         if: startsWith(env.DEPLOY_OPERATION, 'destroy')
         shell: bash
-        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless hml infra/hml/backend.hcl
+        run: bash .github/scripts/prepare-destroy-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}" "infra/${{ env.DEPLOY_ENVIRONMENT }}/backend.hcl"
       - name: Write destroy-only Terraform placeholders
         if: startsWith(env.DEPLOY_OPERATION, 'destroy') && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: |
+          # Destroy reads existing state only. These values are deliberately
+          # placeholders: the external JWT/database secrets and S3 backend are
+          # not Terraform resources in this stack and are never deleted here.
           cat > terraform.auto.tfvars.json <<'JSON'
           {
             "aws_region": "${{ env.AWS_REGION }}",
@@ -242,6 +310,7 @@ jobs:
             "lab_role_arn": "arn:aws:iam::000000000000:role/destroy-placeholder",
             "auth_lambda_vpc_enabled": false,
             "deploy_auth_only": true,
+            "destroy_mode": true,
             "jwt_private_key_secret_arn": "destroy-placeholder",
             "jwt_public_key_parameter_name": "/destroy/placeholder",
             "jwt_public_key_parameter_arn": "destroy-placeholder",
@@ -275,15 +344,15 @@ jobs:
           if-no-files-found: error
       - name: Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy-plan' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform plan -destroy -input=false
       - name: Save exact Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform plan -destroy -input=false -out=destroy.tfplan
       - name: Apply exact Terraform destroy plan
         if: env.DEPLOY_OPERATION == 'destroy' && steps.destroy_state.outputs.has_state == 'true'
-        working-directory: infra/hml
+        working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}
         run: terraform apply -input=false destroy.tfplan
       - name: Remove generated Terraform inputs
         if: always()

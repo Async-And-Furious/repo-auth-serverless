@@ -10,6 +10,18 @@ variable "jwt_private_key_secret_arn" { type = string }
 variable "jwt_public_key_parameter_name" { type = string }
 variable "jwt_public_key_parameter_arn" { type = string }
 variable "database_secret_arn" { type = string }
+variable "database_host" {
+  type    = string
+  default = ""
+}
+variable "database_port" {
+  type    = number
+  default = 5432
+}
+variable "database_name" {
+  type    = string
+  default = "workshop"
+}
 variable "academy_mode" {
   description = "Use the pre-existing AWS Academy LabRole and do not create IAM roles or policies."
   type        = bool
@@ -64,22 +76,6 @@ variable "auth_lambda_vpc_enabled" {
   type    = bool
   default = true
 }
-variable "database_security_group_ids" {
-  type    = list(string)
-  default = []
-  validation {
-    condition     = !var.auth_lambda_vpc_enabled || (length(var.database_security_group_ids) > 0 && alltrue([for id in var.database_security_group_ids : trimspace(id) != ""]))
-    error_message = "database_security_group_ids must contain non-empty values when auth_lambda_vpc_enabled is true."
-  }
-}
-variable "database_subnet_ids" {
-  type    = list(string)
-  default = []
-  validation {
-    condition     = !var.auth_lambda_vpc_enabled || (length(var.database_subnet_ids) > 0 && alltrue([for id in var.database_subnet_ids : trimspace(id) != ""]))
-    error_message = "database_subnet_ids must contain non-empty values when auth_lambda_vpc_enabled is true."
-  }
-}
 variable "backend_integration_uri" {
   type    = string
   default = ""
@@ -92,11 +88,8 @@ variable "deploy_auth_only" {
   type    = bool
   default = true
 }
-variable "vpc_link_subnet_ids" {
-  type    = list(string)
-  default = []
-}
-variable "vpc_link_security_group_ids" {
-  type    = list(string)
-  default = []
+
+variable "destroy_mode" {
+  type    = bool
+  default = false
 }

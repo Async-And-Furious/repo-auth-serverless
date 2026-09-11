@@ -1,12 +1,46 @@
 # Agent log
 
-## 2026-09-02 — Standard IAM HML destroy workflow
+## 2026-09-11 — Safe authentication failure diagnostics
 
-- Allowed confirmed HML destroys with standard IAM credentials without requiring
-  Academy mode or an AWS session token, while retaining production guards.
-- Declared the standard IAM key pair as required and session/JWT/database values
-  as optional so the `up` and `down` callers inherit only what each operation needs.
-- No AWS action, commit, push, apply, or destroy was performed.
+- Added structured error fields to `authenticate_customer_failed`, including
+  safe error name, redacted message, correlation/request IDs, and available
+  Lambda deployment context. Request bodies, CPF values, tokens, passwords,
+  connection strings, and secrets remain excluded from logs.
+- Added DB and JWT failure redaction coverage while preserving the generic HTTP
+  500 response. Validation passed: focused tests (11), full suite (32),
+  typecheck, and build. No AWS apply or destroy was run.
+
+## 2026-09-09 — Kubernetes remote-state backend listener
+
+- CI now reads the selected HML/production `internal_alb_listener_arn` directly
+  from the matching `repo-k8s-infra` Terraform state, validates the listener ARN,
+  and fails closed when state or output is unavailable.
+- Preserved production rejection of the known HML listener. No AWS apply or
+  destroy was run.
+
+## 2026-09-04 — API Gateway VPC Link remote-state networking
+
+- HML and production now consume `private_subnet_ids` and
+  `internal_alb_security_group_id` from matching `repo-k8s-infra` state for the
+  private API Gateway VPC Link. Removed empty GitHub VPC Link inputs; the
+  existing ALB listener ARN integration and private route remain unchanged.
+- No AWS apply or destroy was run.
+
+## 2026-09-04 — Remote-state Lambda networking
+
+- Removed GitHub subnet/security-group inputs, including stale HML subnet
+  handling that caused Terraform plan failures.
+- HML and production now read matching private subnets from `repo-k8s-infra`
+  state and the database security group from `repo-db-infra` state. No AWS
+  apply or destroy was run.
+
+## 2026-09-04 — Explicit production destroy workflow
+
+- Added dispatch-only production destroy with the protected `production`
+  Environment and exact `DESTROY PROD` confirmation.
+- Kept HML destroy behavior, state backend, and external JWT/database secrets
+  unchanged; destroy-only Terraform placeholders are used without deleting
+  those external resources. No destroy was executed.
 
 ## 2026-08-31 — Academy workflow and exact Lambda artifact
 
@@ -155,3 +189,11 @@
 - Added security-contract coverage for active-customer RS256 issuance and
   authorizer decisions, plus correlation-safe structured success/error logs.
 - Validation was run locally; no AWS command, Terraform apply, or destroy was run.
+
+## 2026-09-03 — Production backend listener guard
+
+- Production now requires its environment-scoped `BACKEND_INTEGRATION_URI` and
+  rejects the known HML `tc3-hml-internal` listener instead of cross-wiring the
+  API Gateway integration. The input remains the approved listener ARN output
+  from the matching `repo-k8s-infra` state; no remote-state shortcut or secret
+  handling was added. No Terraform apply was run.

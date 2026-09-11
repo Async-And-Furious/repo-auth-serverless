@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const downWorkflow = readFileSync(new URL("../.github/workflows/down.yml", import.meta.url), "utf8");
 
 describe("delivery workflow contract", () => {
   it("keeps automatic HML and protected production delivery distinct", () => {
@@ -13,16 +14,16 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}");
     expect(workflow).toContain("aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}");
     expect(workflow).toContain("aws-session-token: ${{ env.AWS_SESSION_TOKEN }}");
-    expect(workflow).toContain("if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.operation == 'apply'");
-    expect(workflow).not.toContain("Production requires OIDC credentials; Academy credentials are not permitted.");
+    expect(workflow).toContain("if: env.DEPLOY_ENVIRONMENT == 'prod' && env.DEPLOY_OPERATION == 'apply' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')");
+    expect(workflow).toContain('[ "$CONFIRM" = "APPLY PROD" ]');
   });
 
   it("keeps destructive operations manual and HML-only", () => {
     expect(workflow).toContain("options: [plan, apply, destroy-plan, destroy]");
     expect(workflow).toContain('[ "$ENVIRONMENT" = "hml" ]');
     expect(workflow).toContain('[ "$CONFIRM" = "DESTROY HML" ]');
-    expect(workflow).not.toContain("Destroy operations require Academy mode.");
     expect(workflow).toContain('TFVARS_ACADEMY_MODE: "false"');
+    expect(workflow).toContain('Destroy requires confirm="DESTROY HML".');
   });
 
   it("ships the exact package used by the saved plan", () => {
@@ -30,5 +31,31 @@ describe("delivery workflow contract", () => {
     expect(workflow).toContain("actions/download-artifact@v4");
     expect(workflow).toContain("terraform-plan-${{ env.DEPLOY_ENVIRONMENT }}-${{ github.run_id }}");
     expect(workflow).toContain("path: .");
+  });
+
+  it("does not allow production to use an HML backend listener", () => {
+    expect(workflow).toContain("Validate production backend source");
+    expect(workflow).toContain("internal_alb_listener_arn");
+    expect(workflow).toContain("repo-k8s-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate");
+    expect(workflow).toContain("aws s3 cp");
+    expect(workflow).toContain("has no valid internal_alb_listener_arn output");
+    expect(workflow).not.toContain("TFVARS_BACKEND_INTEGRATION_URI: ${{ vars.BACKEND_INTEGRATION_URI }}");
+    expect(workflow).toContain("tc3-hml-internal");
+    expect(workflow).toContain("production environment BACKEND_INTEGRATION_URI");
+  });
+
+  it("allows production destroy only through the explicit dispatch contract", () => {
+    expect(workflow).toContain('Production destroy is allowed only through workflow_dispatch.');
+    expect(workflow).toContain('[ "$CONFIRM" = "DESTROY PROD" ]');
+    expect(workflow).not.toContain('Production destroy requires Academy mode.');
+    expect(workflow).not.toContain('Destroy operations require Academy mode.');
+    expect(workflow).toContain('Destroy requires confirm="DESTROY HML".');
+    expect(workflow).toContain("environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production'");
+    expect(workflow).toContain('prepare-destroy-backend.sh repo-auth-serverless "${{ env.DEPLOY_ENVIRONMENT }}"');
+    expect(workflow).toContain("working-directory: infra/${{ env.DEPLOY_ENVIRONMENT }}");
+    expect(workflow).toContain("external JWT/database secrets and S3 backend");
+    expect(downWorkflow).toContain("options: [hml, prod]");
+    expect(downWorkflow).toContain("environment: ${{ inputs.environment }}");
+    expect(downWorkflow).toContain("operation: destroy");
   });
 });
