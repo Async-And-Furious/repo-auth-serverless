@@ -1,0 +1,113 @@
+name: HML authorizer branch classification
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    environment: hml
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Classify fresh-token authorizer failure without exposing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SEEDED_CPF:-}" || { echo 'seeded credential unavailable'; exit 1; }
+          api_endpoint="$(aws apigatewayv2 get-apis --query "Items[?Name=='tc3-auth-hml'].ApiEndpoint | [0]" --output text)"
+          auth_config="$RUNNER_TEMP/auth-config.json"
+          authorizer_config="$RUNNER_TEMP/authorizer-config.json"
+          aws lambda get-function-configuration --function-name tc3-auth-hml-auth --output json > "$auth_config"
+          aws lambda get-function-configuration --function-name tc3-auth-hml-authorizer --output json > "$authorizer_config"
+          python - "$auth_config" "$authorizer_config" <<'PY'
+          import json, os, sys
+          auth=json.load(open(sys.argv[1], encoding='utf-8'))
+          authorizer=json.load(open(sys.argv[2], encoding='utf-8'))
+          open(os.path.join(os.environ['RUNNER_TEMP'],'private-arn'),'w').write((auth.get('Environment') or {}).get('Variables',{}).get('JWT_PRIVATE_KEY_SECRET_ARN',''))
+          open(os.path.join(os.environ['RUNNER_TEMP'],'public-name'),'w').write((authorizer.get('Environment') or {}).get('Variables',{}).get('JWT_PUBLIC_KEY_PARAM_NAME',''))
+          print(json.dumps({'authorizer_issuer':(authorizer.get('Environment') or {}).get('Variables',{}).get('JWT_ISSUER'), 'authorizer_audience':(authorizer.get('Environment') or {}).get('Variables',{}).get('JWT_AUDIENCE')}))
+          PY
+          private_arn="$(cat "$RUNNER_TEMP/private-arn")"
+          public_name="$(cat "$RUNNER_TEMP/public-name")"
+          public_file="$RUNNER_TEMP/public-key.pem"
+          private_file="$RUNNER_TEMP/private-secret.json"
+          aws ssm get-parameter --name "$public_name" --query 'Parameter.Value' --output text > "$public_file"
+          aws secretsmanager get-secret-value --secret-id "$private_arn" --query 'SecretString' --output text > "$private_file"
+          auth_body="$RUNNER_TEMP/auth.json"
+          correlation="github-authorizer-classification-${GITHUB_RUN_ID}"
+          auth_status="$(curl --silent --show-error --max-time 20 -H 'content-type: application/json' -H "x-correlation-id: $correlation" -d "$(python -c 'import json,os; print(json.dumps({"cpf":os.environ["SEEDED_CPF"]}))')" --output "$auth_body" --write-out '%{http_code}' "$api_endpoint/auth")"
+          token="$(python - "$auth_body" <<'PY'
+          import json,sys
+          try: print(json.load(open(sys.argv[1],encoding='utf-8')).get('token',''))
+          except Exception: print('')
+          PY
+          )"
+          echo "auth_status=$auth_status correlation_id=$correlation"
+          test -n "$token" || { echo 'first_failed_predicate=authentication_token_not_issued'; exit 0; }
+          node - "$token" "$public_file" "$private_file" "$authorizer_config" <<'JS'
+          const fs=require('fs'), crypto=require('crypto');
+          const token=process.argv[2], publicPem=fs.readFileSync(process.argv[3],'utf8');
+          const secretText=fs.readFileSync(process.argv[4],'utf8').trim();
+          const config=JSON.parse(fs.readFileSync(process.argv[5],'utf8'));
+          const env=(config.Environment||{}).Variables||{};
+          const safe=(x)=>typeof x==='string' ? x : Array.isArray(x) ? `[array:${x.length}]` : typeof x;
+          const part=(s)=>Buffer.from(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4),'base64').toString('utf8');
+          let header={}, claims={}, signatureOk=false, parseOk=false, signerFp=null;
+          try {
+            const p=token.split('.'); header=JSON.parse(part(p[0])); claims=JSON.parse(part(p[1]));
+            parseOk=p.length===3 && !!p[0] && !!p[1] && !!p[2];
+            signatureOk=crypto.verify('RSA-SHA256',Buffer.from(`${p[0]}.${p[1]}`),crypto.createPublicKey(publicPem),Buffer.from(p[2].replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-p[2].length%4)%4),'base64'));
+          } catch {}
+          const fp=(pem)=>crypto.createHash('sha256').update(crypto.createPublicKey(pem).export({type:'spki',format:'der'})).digest('hex');
+          let publicFp=null; try { publicFp=fp(publicPem); } catch {}
+          try {
+            let secret=JSON.parse(secretText); secret=secret.privateKey||secret.private_key||secret.key||secret.SecretString||secret;
+            if(typeof secret==='string') signerFp=fp(secret);
+          } catch { try { signerFp=fp(secretText); } catch {} }
+          const now=Math.floor(Date.now()/1000), expectedIss=env.JWT_ISSUER, expectedAud=env.JWT_AUDIENCE;
+          const checks={
+            header_parsing:parseOk && header.alg==='RS256',
+            ssm_key_fetched:publicPem.trim().length>0,
+            key_fingerprint_matches:signerFp===null ? null : signerFp===publicFp,
+            rs256_signature:signatureOk,
+            issuer:claims.iss===expectedIss,
+            audience:claims.aud===expectedAud,
+            expiry:typeof claims.exp==='number' && claims.exp>now,
+            required_claim_shapes:typeof claims.sub==='string' && claims.sub.trim()!=='' && typeof claims.iat==='number' && typeof claims.exp==='number'
+          };
+          let first='none';
+          for(const [name,ok] of Object.entries(checks)) if(ok===false){ first=name; break; }
+          console.log(JSON.stringify({
+            token_header:{alg:safe(header.alg),typ:safe(header.typ),kid_present:Object.prototype.hasOwnProperty.call(header,'kid')},
+            claim_names:Object.keys(claims).sort(), issuer:safe(claims.iss), audience:safe(claims.aud), sub_present:typeof claims.sub==='string',
+            exp_type:typeof claims.exp, iat_type:typeof claims.iat, expired:checks.expiry===false,
+            public_key_fingerprint:publicFp, signer_public_key_fingerprint:signerFp,
+            checks, first_failed_predicate:first
+          }));
+          JS
+          payload="$RUNNER_TEMP/event.json"
+          python - "$payload" "$token" "$correlation" <<'PY'
+          import json,sys
+          json.dump({'version':'2.0','type':'REQUEST','routeArn':'diagnostic','headers':{'authorization':'Bearer '+sys.argv[2],'x-correlation-id':sys.argv[3]},'requestContext':{'requestId':sys.argv[3]}},open(sys.argv[1],'w'))
+          PY
+          response="$RUNNER_TEMP/authorizer-response.json"
+          aws lambda invoke --function-name tc3-auth-hml-authorizer --cli-binary-format raw-in-base64-out --payload "fileb://$payload" "$response" >/dev/null
+          python - "$response" "$correlation" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding='utf-8'))
+          print(json.dumps({'deployed_authorizer_isAuthorized':d.get('isAuthorized'),'correlation_id':sys.argv[2],'error_class':d.get('FunctionError')}))
+          PY
