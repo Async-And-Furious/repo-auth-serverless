@@ -62,4 +62,4 @@ export const authorizeRequest = async (
   }
 };
 
-export const handler = authorizeRequest;
+export const handler = async (event: AuthorizerEvent) => authorizeRequest(event, getPublicKey);
