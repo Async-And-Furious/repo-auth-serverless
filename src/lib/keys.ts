@@ -39,7 +39,9 @@ export async function getPublicKey(): Promise<string> {
     throw new Error("JWT_PUBLIC_KEY_PARAM_NAME is not set");
   }
 
-  const result = await ssmClient.send(new GetParameterCommand({ Name: name }));
+  const result = await ssmClient.send(
+    new GetParameterCommand({ Name: name, WithDecryption: true }),
+  );
   if (!result.Parameter?.Value) {
     throw new Error("JWT public key parameter has no value");
   }
