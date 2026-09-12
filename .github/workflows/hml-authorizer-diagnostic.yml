@@ -1,0 +1,152 @@
+name: HML authorizer read-only diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    environment: hml
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Inspect deployed HML authorizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_json="$RUNNER_TEMP/api.json"
+          aws apigatewayv2 get-apis --output json > "$api_json"
+          python - "$api_json" <<'PY'
+          import json, os, sys
+          items = json.load(open(sys.argv[1], encoding="utf-8")).get("Items", [])
+          matches = [x for x in items if x.get("Name") == "tc3-auth-hml"]
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one HML API, found {len(matches)}")
+          api = matches[0]
+          print(json.dumps({"api_id": api.get("ApiId"), "name": api.get("Name"),
+                            "protocol_type": api.get("ProtocolType"),
+                            "api_endpoint": api.get("ApiEndpoint")}))
+          open(os.path.join(os.environ["RUNNER_TEMP"], "api-id"), "w").write(api["ApiId"])
+          open(os.path.join(os.environ["RUNNER_TEMP"], "api-endpoint"), "w").write(api["ApiEndpoint"])
+          PY
+          api_id="$(cat "$RUNNER_TEMP/api-id")"
+          api_endpoint="$(cat "$RUNNER_TEMP/api-endpoint")"
+          aws apigatewayv2 get-stage --api-id "$api_id" --stage-name '$default' \
+            --query '{stageName:StageName,autoDeploy:AutoDeploy,defaultRouteSettings:DefaultRouteSettings}' --output json
+          aws apigatewayv2 get-authorizers --api-id "$api_id" --output json | \
+            python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"id":x.get("AuthorizerId"),"name":x.get("Name"),"type":x.get("AuthorizerType"),"authorizerUri":x.get("AuthorizerUri"),"identitySources":x.get("IdentitySource"),"payloadVersion":x.get("AuthorizerPayloadFormatVersion"),"simpleResponses":x.get("EnableSimpleResponses")} for x in d.get("Items",[])], sort_keys=True))'
+          aws apigatewayv2 get-routes --api-id "$api_id" --output json | \
+            python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"routeId":x.get("RouteId"),"routeKey":x.get("RouteKey"),"authorizationType":x.get("AuthorizationType"),"authorizerId":x.get("AuthorizerId"),"target":x.get("Target")} for x in d.get("Items",[])], sort_keys=True))'
+          aws apigatewayv2 get-integrations --api-id "$api_id" --output json | \
+            python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"integrationId":x.get("IntegrationId"),"type":x.get("IntegrationType"),"integrationUri":x.get("IntegrationUri"),"connectionType":x.get("ConnectionType")} for x in d.get("Items",[])], sort_keys=True))'
+
+          function_name='tc3-auth-hml-authorizer'
+          config="$RUNNER_TEMP/authorizer-config.json"
+          aws lambda get-function-configuration --function-name "$function_name" --output json > "$config"
+          python - "$config" <<'PY'
+          import json, os, sys
+          d=json.load(open(sys.argv[1], encoding="utf-8"))
+          print(json.dumps({"function_name":d.get("FunctionName"),"function_arn":d.get("FunctionArn"),
+            "role_arn":d.get("Role"),"version":d.get("Version"),"last_modified":d.get("LastModified"),
+            "code_sha256":d.get("CodeSha256"),"runtime":d.get("Runtime"),"handler":d.get("Handler"),
+            "environment_keys":sorted((d.get("Environment") or {}).get("Variables",{}).keys())}, sort_keys=True))
+          env=(d.get("Environment") or {}).get("Variables",{})
+          open(os.path.join(os.environ["RUNNER_TEMP"], "param-name"), "w").write(env.get("JWT_PUBLIC_KEY_PARAM_NAME", ""))
+          open(os.path.join(os.environ["RUNNER_TEMP"], "role-arn"), "w").write(d.get("Role", ""))
+          PY
+          param_name="$(cat "$RUNNER_TEMP/param-name")"
+          role_arn="$(cat "$RUNNER_TEMP/role-arn")"
+          role_name="${role_arn##*/}"
+          aws iam list-attached-role-policies --role-name "$role_name" --output json | \
+            python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"policyName":x.get("PolicyName"),"policyArn":x.get("PolicyArn")} for x in d.get("AttachedPolicies",[])], sort_keys=True))'
+          aws iam list-role-policies --role-name "$role_name" --output json | \
+            python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"inline_policy_names":d.get("PolicyNames",[])}, sort_keys=True))'
+          for policy in $(aws iam list-role-policies --role-name "$role_name" --query 'PolicyNames[]' --output text); do
+            aws iam get-role-policy --role-name "$role_name" --policy-name "$policy" --output json | \
+              python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"policyName":d.get("PolicyName"),"policyDocument":d.get("PolicyDocument")}, sort_keys=True))'
+          done
+
+          aws ssm describe-parameters --parameter-filters "Key=Name,Option=Equals,Values=$param_name" \
+            --query 'Parameters[0].{Name:Name,Type:Type,KeyId:KeyId,DataType:DataType,ARN:ARN,LastModifiedDate:LastModifiedDate,Version:Version}' --output json
+
+          code_json="$RUNNER_TEMP/function.json"
+          aws lambda get-function --function-name "$function_name" --output json > "$code_json"
+          code_url="$(python - "$code_json" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["Code"]["Location"])
+          PY
+          )"
+          curl --fail --silent --show-error "$code_url" --output "$RUNNER_TEMP/function.zip"
+          if unzip -p "$RUNNER_TEMP/function.zip" | strings | grep -q 'WithDecryption'; then
+            echo 'deployed_code_contains_WithDecryption=true'
+          else
+            echo 'deployed_code_contains_WithDecryption=false'
+          fi
+
+          if [ -z "${SEEDED_CPF:-}" ]; then
+            echo 'fresh_token_request=skipped_missing_approved_secret'
+            exit 0
+          fi
+          correlation="github-authorizer-diagnostic-${GITHUB_RUN_ID}"
+          auth_body="$RUNNER_TEMP/auth-body.json"
+          auth_status="$(curl --silent --show-error --max-time 20 \
+            -H 'content-type: application/json' -H "x-correlation-id: $correlation" \
+            -d "$(python -c 'import json,os; print(json.dumps({"cpf":os.environ["SEEDED_CPF"]}))')" \
+            --output "$auth_body" --write-out '%{http_code}' "$api_endpoint/auth")"
+          echo "fresh_token_auth_status=$auth_status fresh_token_correlation_id=$correlation"
+          token="$(python - "$auth_body" <<'PY'
+          import json,sys
+          try:
+              x=json.load(open(sys.argv[1], encoding="utf-8")); print(x.get("token", ""))
+          except Exception: print("")
+          PY
+          )"
+          if [ -z "$token" ]; then
+            echo 'fresh_token=unavailable'
+            exit 0
+          fi
+          payload="$RUNNER_TEMP/authorizer-event.json"
+          python - "$payload" "$token" "$correlation" <<'PY'
+          import json,sys
+          json.dump({"version":"2.0","type":"REQUEST","routeArn":"diagnostic",
+            "headers":{"authorization":"Bearer "+sys.argv[2],"x-correlation-id":sys.argv[3]},
+            "requestContext":{"requestId":sys.argv[3]}}, open(sys.argv[1],"w"))
+          PY
+          direct="$RUNNER_TEMP/direct.json"
+          aws lambda invoke --function-name "$function_name" --cli-binary-format raw-in-base64-out \
+            --payload "fileb://$payload" "$direct" >/dev/null
+          python - "$direct" "$correlation" <<'PY'
+          import json,sys
+          try:
+              d=json.load(open(sys.argv[1],encoding="utf-8")); print(json.dumps({
+                "direct_authorizer_status":d.get("StatusCode"),
+                "isAuthorized":d.get("isAuthorized", d.get("Payload",{}).get("isAuthorized") if isinstance(d.get("Payload"),dict) else None),
+                "correlation_id":sys.argv[2],"error_class":d.get("FunctionError") or None}))
+          except Exception as e: print(json.dumps({"direct_authorizer_status":"unparseable","isAuthorized":None,"correlation_id":sys.argv[2],"error_class":type(e).__name__}))
+          PY
+          gateway_body="$RUNNER_TEMP/gateway-body"
+          gateway_correlation="${correlation}-gateway"
+          gateway_status="$(curl --silent --show-error --max-time 20 -H "authorization: Bearer $token" \
+            -H "x-correlation-id: $gateway_correlation" --output "$gateway_body" \
+            --write-out '%{http_code}' "$api_endpoint/health")"
+          error_class="$(python - "$gateway_body" <<'PY'
+          import json,sys
+          try:
+              d=json.load(open(sys.argv[1],encoding="utf-8")); print(d.get("error",d.get("message","none")))
+          except Exception: print("non_json")
+          PY
+          )"
+          error_class="$(printf '%s' "$error_class" | tr -cd '[:alnum:]_-' | cut -c1-80)"
+          echo "gateway_status=$gateway_status gateway_correlation_id=$gateway_correlation error_class=${error_class:-none}"
