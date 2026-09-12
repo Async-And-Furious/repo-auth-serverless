@@ -126,9 +126,12 @@ resource "aws_iam_role_policy" "runtime" {
   ] })
 }
 resource "aws_iam_role_policy" "authorizer_ssm" {
-  count  = local.create_authorizer_role ? 1 : 0
-  role   = aws_iam_role.authorizer[0].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn }] })
+  count = local.create_authorizer_role ? 1 : 0
+  role  = aws_iam_role.authorizer[0].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn },
+    { Effect = "Allow", Action = ["kms:Decrypt"], Resource = "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alias/aws/ssm" }
+  ] })
 }
 resource "aws_cloudwatch_log_group" "auth" {
   name              = "/aws/lambda/${var.name_prefix}-auth"
