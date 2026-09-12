@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { authorizeRequest, extractBearerToken } from "./handler.js";
+import { authorizeRequest, extractBearerToken, handler } from "./handler.js";
+
+let runtimePublicKey = "";
+vi.mock("../lib/keys.js", () => ({ getPublicKey: async () => runtimePublicKey }));
 
 describe("extractBearerToken", () => {
   it("extracts the token from a well-formed Bearer header", () => {
@@ -26,6 +29,17 @@ describe("extractBearerToken", () => {
 });
 
 describe("authorizer decisions", () => {
+  it("adapts the Lambda context without passing it as the key provider", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "pkcs1", format: "pem" } });
+    runtimePublicKey = publicKey;
+    process.env.JWT_ISSUER = "test-issuer";
+    process.env.JWT_AUDIENCE = "test-audience";
+    process.env.JWT_EXPIRES_IN = "1800";
+    const token = jwt.sign({ sub: "c-1" }, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "test-audience", expiresIn: 1800 });
+    const result = await Reflect.apply(handler, undefined, [{ headers: { authorization: `Bearer ${token}` }, requestContext: { requestId: "corr-handler" } }, { awsRequestId: "lambda-context" }]);
+    expect(result.isAuthorized).toBe(true);
+  });
+
   it("allows a valid RS256 token and denies an invalid one", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "pkcs1", format: "pem" } });
     process.env.JWT_ISSUER = "test-issuer";
