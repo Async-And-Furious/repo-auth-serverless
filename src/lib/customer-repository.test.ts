@@ -75,4 +75,26 @@ WHERE "documento" = $1
       max: 2,
     });
   });
+
+  it("completes the RDS secret with non-secret database settings", async () => {
+    vi.resetModules();
+    delete process.env.DATABASE_URL;
+    process.env.DATABASE_SECRET_ARN = "arn:aws:secretsmanager:test";
+    process.env.DATABASE_HOST = "database.example";
+    process.env.DATABASE_PORT = "5433";
+    process.env.DATABASE_NAME = "app";
+    process.env.DATABASE_SSLMODE = "verify-full";
+    secrets.send.mockResolvedValueOnce({
+      SecretString: JSON.stringify({ username: "user", password: "password" }),
+    });
+    pg.query.mockResolvedValueOnce({ rows: [] });
+
+    const { findCustomer: findCustomerWithRdsSecret } = await import("./customer-repository.js");
+    await expect(findCustomerWithRdsSecret("52998224725")).resolves.toBeNull();
+
+    expect(pg.Pool).toHaveBeenCalledWith({
+      connectionString: "postgresql://user:password@database.example:5433/app?sslmode=require&uselibpqcompat=true",
+      max: 2,
+    });
+  });
 });
