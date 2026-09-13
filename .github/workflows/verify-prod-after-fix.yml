@@ -30,7 +30,7 @@ jobs:
           role_arn="$(aws lambda get-function-configuration --function-name tc3-auth-prod-authorizer --query Role --output text)"
           role_name="${role_arn##*/}"
           policy_names="$(aws iam list-role-policies --role-name "$role_name" --query 'PolicyNames' --output json)"
-          echo "AUTHORlZER_ROLE_NAME_PRESENT=$([ -n "$role_name" ] && echo true || echo false) INLINE_POLICY_NAMES=$policy_names"
+          echo "AUTHORlZER_ROLE_MATCH_EXPECTED=$([ "$role_name" = 'tc3-auth-prod-authorizer' ] && echo true || echo false) INLINE_POLICY_NAMES=$policy_names"
       - name: Call current PROD routes without printing credentials
         shell: bash
         run: |
