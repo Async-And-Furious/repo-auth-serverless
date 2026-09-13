@@ -2,6 +2,7 @@ name: PROD 403 diagnostic
 
 on:
   workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
