@@ -92,7 +92,8 @@ jobs:
         run: |
           set -euo pipefail
           start_ms="$(( $(date +%s) * 1000 - 900000 ))"
-          python - "$RUNNER_TEMP/logs.py" <<'PY'
+          for attempt in 1 2 3 4 5 6; do
+            python - "$RUNNER_TEMP/logs.py" <<'PY'
           import json, re, sys
           open(sys.argv[1], 'w', encoding='utf-8').write(r'''
           import json, os, re, subprocess
@@ -113,7 +114,13 @@ jobs:
                       print(json.dumps({'function':function,'event':record.get('event'),'failure_stage':record.get('failure_stage'),'exception_name':safe(record.get('exception_name')),'exception_message':safe(record.get('exception_message')),'error_name':safe(record.get('error_name')),'correlation_id':safe(correlation)}))
           ''')
           PY
-          START_MS="$start_ms" python "$RUNNER_TEMP/logs.py"
+            START_MS="$start_ms" python "$RUNNER_TEMP/logs.py" > "$RUNNER_TEMP/evidence.jsonl"
+            if test -s "$RUNNER_TEMP/evidence.jsonl"; then
+              cat "$RUNNER_TEMP/evidence.jsonl"
+              break
+            fi
+            test "$attempt" -eq 6 || sleep 5
+          done
         env:
           AUTH_CORRELATION: prod-403-auth-${{ github.run_id }}
           PROTECTED_CORRELATION: prod-403-protected-${{ github.run_id }}
