@@ -110,8 +110,8 @@ jobs:
                   try: record = json.loads(message)
                   except Exception: record = {}
                   correlation = record.get('correlation_id')
-                  if correlation in (os.environ.get('AUTH_CORRELATION'), os.environ.get('PROTECTED_CORRELATION')):
-                      print(json.dumps({'function':function,'event':record.get('event'),'failure_stage':record.get('failure_stage'),'exception_name':safe(record.get('exception_name')),'exception_message':safe(record.get('exception_message')),'error_name':safe(record.get('error_name')),'correlation_id':safe(correlation)}))
+                  if record.get('event') in ('authorizer_allowed', 'authorizer_denied', 'authenticate_customer_succeeded', 'authenticate_customer_failed'):
+                      print(json.dumps({'function':function,'event':record.get('event'),'failure_stage':record.get('failure_stage'),'exception_name':safe(record.get('exception_name')),'exception_message':safe(record.get('exception_message')),'error_name':safe(record.get('error_name')),'correlation_id':safe(correlation) if correlation in (os.environ.get('AUTH_CORRELATION'), os.environ.get('PROTECTED_CORRELATION')) else None}))
           ''')
           PY
             START_MS="$start_ms" python "$RUNNER_TEMP/logs.py" > "$RUNNER_TEMP/evidence.jsonl"
