@@ -10,6 +10,10 @@ variable "jwt_private_key_secret_arn" { type = string }
 variable "jwt_public_key_parameter_name" { type = string }
 variable "jwt_public_key_parameter_arn" { type = string }
 variable "database_secret_arn" { type = string }
+variable "database_host" { type = string }
+variable "database_port" { type = string }
+variable "database_name" { type = string }
+variable "database_ssl_mode" { type = string }
 variable "academy_mode" {
   description = "Use the pre-existing AWS Academy LabRole and do not create IAM roles or policies."
   type        = bool

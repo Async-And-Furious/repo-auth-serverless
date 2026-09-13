@@ -22,10 +22,13 @@ async function connectionString(): Promise<string> {
   const value = JSON.parse(result.SecretString) as Record<string, unknown>;
   if (typeof value.connectionString === "string") return value.connectionString;
   if (typeof value.url === "string") return value.url;
-  if (typeof value.host !== "string" || typeof value.username !== "string" || typeof value.password !== "string") {
+  const host = typeof value.host === "string" ? value.host : process.env.DATABASE_HOST;
+  const port = value.port ?? process.env.DATABASE_PORT ?? 5432;
+  const database = value.dbname ?? value.database ?? process.env.DATABASE_NAME ?? "postgres";
+  if (typeof host !== "string" || typeof value.username !== "string" || typeof value.password !== "string") {
     throw new Error("database secret has no connection details");
   }
-  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${value.host}:${String(value.port ?? 5432)}/${String(value.dbname ?? value.database ?? "postgres")}?sslmode=require`;
+  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}:${String(port)}/${String(database)}?sslmode=${encodeURIComponent(process.env.DATABASE_SSLMODE ?? "require")}`;
 }
 
 export async function findCustomer(cpf: string): Promise<Customer | null> {
