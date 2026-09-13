@@ -41,6 +41,52 @@ locals {
   vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
 }
 
+resource "aws_security_group" "auth_lambda" {
+  count       = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  name        = "${var.name_prefix}-lambda"
+  description = "Private egress for the auth Lambda"
+  vpc_id      = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/8"]
+  }
+}
+
+resource "aws_security_group" "secrets_manager_endpoint" {
+  count       = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  name        = "${var.name_prefix}-secrets-manager-endpoint"
+  description = "Private Secrets Manager access for the auth Lambda"
+  vpc_id      = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+
+  ingress {
+    description     = "Secrets Manager HTTPS from auth Lambda"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.auth_lambda[0].id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_vpc_endpoint" "secrets_manager" {
+  count               = var.auth_lambda_vpc_enabled && !var.destroy_mode ? 1 : 0
+  vpc_id              = data.terraform_remote_state.k8s_infra.outputs.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.database_subnet_ids
+  security_group_ids  = [aws_security_group.secrets_manager_endpoint[0].id]
+  private_dns_enabled = true
+}
+
 resource "aws_iam_role" "auth" {
   count              = local.create_auth_lambda_role ? 1 : 0
   name               = "${var.name_prefix}-auth"
@@ -73,7 +119,12 @@ resource "aws_iam_role_policy" "runtime" {
 resource "aws_iam_role_policy" "authorizer_ssm" {
   count  = local.create_authorizer_role ? 1 : 0
   role   = aws_iam_role.authorizer[0].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn }] })
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.jwt_public_key_parameter_name, "/")}" }] })
+}
+resource "aws_iam_role_policy" "authorizer_ssm_external" {
+  count  = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) != "" ? 1 : 0
+  role   = var.authorizer_lambda_role_arn
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.jwt_public_key_parameter_name, "/")}" }] })
 }
 
 resource "aws_cloudwatch_log_group" "auth" {
@@ -97,10 +148,10 @@ resource "aws_lambda_function" "auth" {
     for_each = var.auth_lambda_vpc_enabled ? [1] : []
     content {
       subnet_ids         = local.database_subnet_ids
-      security_group_ids = local.database_security_group_ids
+      security_group_ids = [aws_security_group.auth_lambda[0].id]
     }
   }
-  environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, DATABASE_HOST = var.database_host, DATABASE_PORT = var.database_port, DATABASE_NAME = var.database_name, DATABASE_SSLMODE = var.database_ssl_mode, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }
+  environment { variables = { JWT_PRIVATE_KEY_SECRET_ARN = var.jwt_private_key_secret_arn, DATABASE_SECRET_ARN = var.database_secret_arn, DATABASE_HOST = var.database_host, DATABASE_PORT = tostring(var.database_port), DATABASE_NAME = var.database_name, JWT_ALGORITHM = "RS256", JWT_ISSUER = var.jwt_issuer, JWT_AUDIENCE = var.jwt_audience, JWT_EXPIRES_IN = tostring(var.jwt_expires_in) } }
 }
 resource "aws_lambda_function" "authorizer" {
   function_name    = "${var.name_prefix}-authorizer"

@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { authorizeRequest, extractBearerToken } from "./handler.js";
+import { authorizeRequest, extractBearerToken, handler } from "./handler.js";
+
+let runtimePublicKey = "";
+vi.mock("../lib/keys.js", () => ({ getPublicKey: async () => runtimePublicKey }));
 
 describe("extractBearerToken", () => {
   it("extracts the token from a well-formed Bearer header", () => {
@@ -26,6 +29,17 @@ describe("extractBearerToken", () => {
 });
 
 describe("authorizer decisions", () => {
+  it("adapts the Lambda context without passing it as the key provider", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "pkcs1", format: "pem" } });
+    runtimePublicKey = publicKey;
+    process.env.JWT_ISSUER = "test-issuer";
+    process.env.JWT_AUDIENCE = "test-audience";
+    process.env.JWT_EXPIRES_IN = "1800";
+    const token = jwt.sign({ sub: "c-1" }, privateKey, { algorithm: "RS256", issuer: "test-issuer", audience: "test-audience", expiresIn: 1800 });
+    const result = await Reflect.apply(handler, undefined, [{ headers: { authorization: `Bearer ${token}` }, requestContext: { requestId: "corr-handler" } }, { awsRequestId: "lambda-context" }]);
+    expect(result.isAuthorized).toBe(true);
+  });
+
   it("allows a valid RS256 token and denies an invalid one", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "pkcs1", format: "pem" } });
     process.env.JWT_ISSUER = "test-issuer";
@@ -35,5 +49,37 @@ describe("authorizer decisions", () => {
     const key = async () => publicKey;
     expect((await authorizeRequest({ headers: { authorization: `Bearer ${token}` }, requestContext: { requestId: "corr-authz" } }, key)).isAuthorized).toBe(true);
     expect((await authorizeRequest({ headers: { authorization: "Bearer not-a-token" }, requestContext: { requestId: "corr-authz" } }, key)).isAuthorized).toBe(false);
+  });
+
+  it("classifies public-key loading failures without changing the denial response", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const result = await authorizeRequest(
+        { headers: { authorization: "Bearer token.value.signature" }, requestContext: { requestId: "corr-key" } },
+        async () => { throw new Error("Parameter /tc3/hml/jwt/public-key unavailable"); },
+      );
+      expect(result).toEqual({ isAuthorized: false, context: { correlation_id: "corr-key" } });
+      const record = JSON.parse(String(log.mock.calls[0]?.[0]));
+      expect(record).toMatchObject({ failure_stage: "key_fetch", exception_name: "Error", correlation_id: "corr-key" });
+      expect(record.exception_message).not.toContain("/tc3/hml/jwt/public-key");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("classifies JWT verification failures separately", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const result = await authorizeRequest(
+        { headers: { authorization: "Bearer not-a-token" }, requestContext: { requestId: "corr-jwt" } },
+        async () => "unused-public-key",
+      );
+      expect(result).toEqual({ isAuthorized: false, context: { correlation_id: "corr-jwt" } });
+      const record = JSON.parse(String(log.mock.calls[0]?.[0]));
+      expect(record).toMatchObject({ failure_stage: "jwt_verification", exception_name: "JsonWebTokenError", correlation_id: "corr-jwt" });
+      expect(record.exception_message).toBe("jwt malformed");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

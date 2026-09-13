@@ -25,10 +25,10 @@ async function connectionString(): Promise<string> {
   const host = typeof value.host === "string" ? value.host : process.env.DATABASE_HOST;
   const port = value.port ?? process.env.DATABASE_PORT ?? 5432;
   const database = value.dbname ?? value.database ?? process.env.DATABASE_NAME ?? "postgres";
-  if (typeof host !== "string" || typeof value.username !== "string" || typeof value.password !== "string") {
+  if (typeof host !== "string" || !host || typeof value.username !== "string" || typeof value.password !== "string") {
     throw new Error("database secret has no connection details");
   }
-  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}:${String(port)}/${String(database)}?sslmode=${encodeURIComponent(process.env.DATABASE_SSLMODE ?? "require")}`;
+  return `postgresql://${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}:${String(port)}/${String(database)}?sslmode=require&uselibpqcompat=true`;
 }
 
 export async function findCustomer(cpf: string): Promise<Customer | null> {

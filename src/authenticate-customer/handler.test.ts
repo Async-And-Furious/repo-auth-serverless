@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { authenticateCustomer, normalizeCpf } from "./handler.js";
+import { authenticateCustomer, handler, normalizeCpf } from "./handler.js";
 
 describe("CPF authentication", () => {
   it("validates and normalizes CPF", () => expect(normalizeCpf("529.982.247-25")).toBe("52998224725"));
@@ -30,6 +30,10 @@ describe("CPF authentication", () => {
     const result = await authenticateCustomer({ body: "{}", headers: {}, requestContext: { requestId: "corr-1" } as never }, lookup);
     expect(result.statusCode).toBe(400);
     expect(lookup).not.toHaveBeenCalled();
+  });
+  it("ignores the Lambda context argument instead of treating it as a customer lookup", async () => {
+    const result = await handler({ body: "{}", headers: {}, requestContext: { requestId: "lambda-request-1" } as never }, { awsRequestId: "lambda-request-1" } as never);
+    expect(result.statusCode).toBe(400);
   });
   it("rejects a JSON null body as an invalid request", async () => {
     const lookup = vi.fn();

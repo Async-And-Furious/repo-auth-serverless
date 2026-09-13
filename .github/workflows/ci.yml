@@ -102,11 +102,10 @@ jobs:
       TFVARS_JWT_ISSUER: ${{ vars.JWT_ISSUER || 'repo-auth-serverless' }}
       TFVARS_JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE || 'async-furious-project' }}
       TFVARS_JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '1800' }}
-      TFVARS_DATABASE_SECRET_ARN: ${{ secrets.DATABASE_SECRET_ARN }}
+      TFVARS_DATABASE_SECRET_ARN: ""
       TFVARS_DATABASE_HOST: ""
       TFVARS_DATABASE_PORT: ""
       TFVARS_DATABASE_NAME: ""
-      TFVARS_DATABASE_SSL_MODE: ""
       TFVARS_ACADEMY_MODE: "false"
       TFVARS_LAB_ROLE_ARN: ${{ vars.LAB_ROLE_ARN }}
       TFVARS_AUTH_LAMBDA_ROLE_ARN: ${{ vars.AUTH_LAMBDA_ROLE_ARN }}
@@ -193,38 +192,41 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
               env_file.write(f"TFVARS_BACKEND_INTEGRATION_URI={value.strip()}\n")
           PY
-      - name: Read database connection contract from Terraform state
+      - name: Read database secret ARN from managed database state
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
         shell: bash
         run: |
           set -euo pipefail
           account_id="$(aws sts get-caller-identity --query Account --output text)"
           state_file="$RUNNER_TEMP/repo-db-infra-${DEPLOY_ENVIRONMENT}.tfstate"
-          aws s3 cp "s3://tc3-tfstate-${account_id}/repo-db-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" "$state_file" --only-show-errors
+          aws s3 cp \
+            "s3://tc3-tfstate-${account_id}/repo-db-infra/${DEPLOY_ENVIRONMENT}/terraform.tfstate" \
+            "$state_file" --only-show-errors
           python - "$state_file" <<'PY'
           import json
           import os
+          import re
           import sys
 
-          with open(sys.argv[1], encoding="utf-8") as file:
-              outputs = json.load(file).get("outputs", {})
-
-          def output(*names):
-              for name in names:
-                  value = outputs.get(name, {}).get("value")
-                  if value not in (None, ""):
-                      return str(value)
-              raise SystemExit("repo-db-infra state is missing " + "/".join(names))
-
-          values = {
-              "TFVARS_DATABASE_HOST": output("db_host"),
-              "TFVARS_DATABASE_PORT": output("db_port"),
-              "TFVARS_DATABASE_NAME": output("db_name"),
-              "TFVARS_DATABASE_SSL_MODE": output("db_ssl_mode"),
-          }
+          state = json.load(open(sys.argv[1], encoding="utf-8"))
+          outputs = state.get("outputs", {})
+          value = (
+              outputs.get("db_connection_secret_arn", {}).get("value")
+              or outputs.get("db_secret_arn", {}).get("value")
+          )
+          host = outputs.get("db_host", {}).get("value")
+          port = outputs.get("db_port", {}).get("value")
+          name = outputs.get("db_name", {}).get("value")
+          pattern = re.compile(r"^arn:aws(?:-[a-z0-9-]+)?:secretsmanager:[^:]+:\d{12}:secret:.+$")
+          if not isinstance(value, str) or not pattern.fullmatch(value.strip()):
+              raise SystemExit("repo-db-infra remote state has no valid database secret ARN output")
+          if not isinstance(host, str) or not host.strip() or not isinstance(port, (int, float)) or not isinstance(name, str) or not name.strip():
+              raise SystemExit("repo-db-infra remote state has incomplete database connection outputs")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              for name, value in values.items():
-                  env_file.write(f"{name}={value}\n")
+              env_file.write(f"TFVARS_DATABASE_SECRET_ARN={value.strip()}\n")
+              env_file.write(f"TFVARS_DATABASE_HOST={host.strip()}\n")
+              env_file.write(f"TFVARS_DATABASE_PORT={int(port)}\n")
+              env_file.write(f"TFVARS_DATABASE_NAME={name.strip()}\n")
           PY
       - name: Write Terraform variables
         if: ${{ !startsWith(env.DEPLOY_OPERATION, 'destroy') }}
@@ -254,9 +256,8 @@ jobs:
               "jwt_expires_in": number("TFVARS_JWT_EXPIRES_IN"),
               "database_secret_arn": value("TFVARS_DATABASE_SECRET_ARN"),
               "database_host": value("TFVARS_DATABASE_HOST"),
-              "database_port": value("TFVARS_DATABASE_PORT"),
+              "database_port": number("TFVARS_DATABASE_PORT"),
               "database_name": value("TFVARS_DATABASE_NAME"),
-              "database_ssl_mode": value("TFVARS_DATABASE_SSL_MODE"),
               "academy_mode": boolean("TFVARS_ACADEMY_MODE"),
               "lab_role_arn": value("TFVARS_LAB_ROLE_ARN"),
               "auth_lambda_role_arn": value("TFVARS_AUTH_LAMBDA_ROLE_ARN"),
