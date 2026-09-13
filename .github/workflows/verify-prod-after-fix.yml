@@ -34,7 +34,9 @@ jobs:
           policy_name="$(aws iam list-role-policies --role-name "$role_name" --query 'PolicyNames[0]' --output text)"
           policy_file="$RUNNER_TEMP/policy.json"
           aws iam get-role-policy --role-name "$role_name" --policy-name "$policy_name" --output json > "$policy_file"
-          python - "$policy_file" <<'PY'
+          aws lambda get-function-configuration --function-name tc3-auth-prod-authorizer --query 'Environment.Variables.JWT_PUBLIC_KEY_PARAM_NAME' --output text > "$RUNNER_TEMP/parameter-name"
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          python - "$policy_file" "$RUNNER_TEMP/parameter-name" "$account_id" <<'PY'
           import json,sys
           document=json.load(open(sys.argv[1],encoding='utf-8')).get('PolicyDocument',{})
           statements=document.get('Statement',[])
@@ -43,7 +45,9 @@ jobs:
           for statement in statements:
               actions += statement.get('Action',[]) if isinstance(statement.get('Action',[]),list) else [statement.get('Action')]
               resources += statement.get('Resource',[]) if isinstance(statement.get('Resource',[]),list) else [statement.get('Resource')]
-          print(json.dumps({'ssm_get_parameter_policy_present':'ssm:GetParameter' in actions,'policy_resource_count':len(resources)}))
+          parameter_name=open(sys.argv[2],encoding='utf-8').read().strip()
+          expected=f'arn:aws:ssm:us-east-1:{sys.argv[3]}:parameter/{parameter_name.lstrip("/")}'
+          print(json.dumps({'ssm_get_parameter_policy_present':'ssm:GetParameter' in actions,'policy_resource_count':len(resources),'policy_resource_matches_function_parameter':expected in resources}))
           PY
       - name: Call current PROD routes without printing credentials
         shell: bash
