@@ -121,6 +121,11 @@ resource "aws_iam_role_policy" "authorizer_ssm" {
   role   = aws_iam_role.authorizer[0].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn }] })
 }
+resource "aws_iam_role_policy" "authorizer_ssm_external" {
+  count  = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) != "" ? 1 : 0
+  role   = var.authorizer_lambda_role_arn
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn }] })
+}
 
 resource "aws_cloudwatch_log_group" "auth" {
   name              = "/aws/lambda/${var.name_prefix}-auth"
