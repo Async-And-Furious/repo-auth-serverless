@@ -93,7 +93,7 @@ WHERE "documento" = $1
     await expect(findCustomerWithRdsSecret("52998224725")).resolves.toBeNull();
 
     expect(pg.Pool).toHaveBeenCalledWith({
-      connectionString: "postgresql://user:password@database.example:5433/app?sslmode=verify-full",
+      connectionString: "postgresql://user:password@database.example:5433/app?sslmode=require&uselibpqcompat=true",
       max: 2,
     });
   });
