@@ -78,11 +78,21 @@ jobs:
           token = open(sys.argv[2], encoding='utf-8').read()
           json.dump({'version':'2.0','type':'REQUEST','routeArn':'arn:aws:execute-api:us-east-1:000000000000:diagnostic/$default/GET/api/v1/clientes','headers':{'authorization':'Bearer '+token,'x-correlation-id':'prod-current-direct-${{ github.run_id }}'},'requestContext':{'routeKey':'GET /api/v1/clientes','requestId':'prod-current-direct-${{ github.run_id }}'}}, open(sys.argv[1],'w',encoding='utf-8'))
           PY
-          aws lambda invoke --function-name tc3-auth-prod-authorizer --cli-binary-format raw-in-base64-out --payload "fileb://$RUNNER_TEMP/authorizer-event.json" "$RUNNER_TEMP/authorizer-response.json" >/dev/null
+          aws lambda invoke --function-name tc3-auth-prod-authorizer --log-type Tail --cli-binary-format raw-in-base64-out --payload "fileb://$RUNNER_TEMP/authorizer-event.json" "$RUNNER_TEMP/authorizer-response.json" --query LogResult --output text > "$RUNNER_TEMP/authorizer-tail.txt"
           python - "$RUNNER_TEMP/authorizer-response.json" <<'PY'
           import json, sys
           value = json.load(open(sys.argv[1], encoding='utf-8'))
           print(json.dumps({'direct_is_authorized': value.get('isAuthorized')}))
+          PY
+          python - "$RUNNER_TEMP/authorizer-tail.txt" <<'PY'
+          import base64, json, re, sys
+          try: text = base64.b64decode(open(sys.argv[1], encoding='utf-8').read()).decode('utf-8', 'replace')
+          except Exception: text = ''
+          for line in text.splitlines():
+              try: value = json.loads(line[line.find('{'):])
+              except Exception: continue
+              if value.get('event') == 'authorizer_denied':
+                  print(json.dumps({'direct_event':value.get('event'),'failure_stage':value.get('failure_stage'),'exception_name':str(value.get('exception_name',''))[:80],'exception_message':re.sub(r'[^A-Za-z0-9 _.-]','',str(value.get('exception_message','')))[:160]}))
           PY
       - name: Collect current sanitized classifications
         if: always()
