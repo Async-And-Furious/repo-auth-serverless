@@ -1,0 +1,62 @@
+name: Final PROD authorizer verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
+      API_ENDPOINT: https://lu9efb9sbk.execute-api.us-east-1.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Call current PROD routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/auth.json"
+          token_file="$RUNNER_TEMP/token"
+          auth="$(curl --silent --show-error --max-time 20 -H 'content-type: application/json' -H "x-correlation-id: prod-final-auth-${GITHUB_RUN_ID}" -d "$(python -c 'import json,os; print(json.dumps({"cpf":os.environ["SEEDED_CPF"]}))')" --output "$response" --write-out '%{http_code}' "$API_ENDPOINT/auth")"
+          python - "$response" "$token_file" <<'PY'
+          import json,sys
+          token=json.load(open(sys.argv[1],encoding='utf-8')).get('token','')
+          if not isinstance(token,str) or len(token.split('.')) != 3: raise SystemExit('auth failed')
+          open(sys.argv[2],'w',encoding='utf-8').write(token)
+          PY
+          token="$(<"$token_file")"
+          health="$(curl --silent --show-error --max-time 20 -H "Authorization: Bearer $token" -H "x-correlation-id: prod-final-health-${GITHUB_RUN_ID}" --output /dev/null --write-out '%{http_code}' "$API_ENDPOINT/api/v1/health/live")"
+          clientes="$(curl --silent --show-error --max-time 20 -H "Authorization: Bearer $token" -H "x-correlation-id: prod-final-clientes-${GITHUB_RUN_ID}" --output /dev/null --write-out '%{http_code}' "$API_ENDPOINT/api/v1/clientes")"
+          echo "AUTH_HTTP_STATUS=$auth HEALTH_LIVE_HTTP_STATUS=$health CLIENTES_HTTP_STATUS=$clientes"
+      - name: Direct authorizer result and classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/event.json" "$RUNNER_TEMP/token" <<'PY'
+          import json,sys
+          token=open(sys.argv[2],encoding='utf-8').read()
+          json.dump({'version':'2.0','type':'REQUEST','routeArn':'arn:aws:execute-api:us-east-1:000000000000:diagnostic/$default/GET/api/v1/health/live','headers':{'authorization':'Bearer '+token,'x-correlation-id':'prod-final-direct-${{ github.run_id }}'},'requestContext':{'requestId':'prod-final-direct-${{ github.run_id }}'}},open(sys.argv[1],'w',encoding='utf-8'))
+          PY
+          aws lambda invoke --function-name tc3-auth-prod-authorizer --log-type Tail --cli-binary-format raw-in-base64-out --payload "fileb://$RUNNER_TEMP/event.json" "$RUNNER_TEMP/result.json" --query LogResult --output text > "$RUNNER_TEMP/tail.txt"
+          python - "$RUNNER_TEMP/result.json" "$RUNNER_TEMP/tail.txt" <<'PY'
+          import base64,json,re,sys
+          print(json.dumps({'direct_is_authorized':json.load(open(sys.argv[1],encoding='utf-8')).get('isAuthorized')}))
+          try:text=base64.b64decode(open(sys.argv[2],encoding='utf-8').read()).decode('utf-8','replace')
+          except Exception:text=''
+          for line in text.splitlines():
+              try:value=json.loads(line[line.find('{'):])
+              except Exception:continue
+              if value.get('event')=='authorizer_denied': print(json.dumps({'failure_stage':value.get('failure_stage'),'exception_name':str(value.get('exception_name',''))[:80],'exception_message':re.sub(r'[^A-Za-z0-9 _.-]','',str(value.get('exception_message','')))[:160]}))
+          PY
