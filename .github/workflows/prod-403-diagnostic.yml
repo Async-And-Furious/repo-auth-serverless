@@ -85,6 +85,14 @@ jobs:
             -H "Authorization: Bearer $(<"$token_file")" -H "x-correlation-id: $protected_correlation" \
             --output "$RUNNER_TEMP/protected.json" --write-out '%{http_code}' "$endpoint/api/v1/clientes")"
           echo "AUTH_HTTP_STATUS=$auth_status PROTECTED_HTTP_STATUS=$protected_status"
+          python - "$RUNNER_TEMP/protected.json" <<'PY'
+          import json, sys
+          try:
+              value = json.load(open(sys.argv[1], encoding='utf-8'))
+              print(json.dumps({key: value.get(key) for key in ('error', 'message', 'statusCode') if key in value}))
+          except Exception:
+              print('{"response":"non_json"}')
+          PY
           printf 'AUTH_CORRELATION=%s\nPROTECTED_CORRELATION=%s\n' "$auth_correlation" "$protected_correlation" >> "$GITHUB_ENV"
       - name: Collect sanitized PROD auth and authorizer evidence
         if: always()
