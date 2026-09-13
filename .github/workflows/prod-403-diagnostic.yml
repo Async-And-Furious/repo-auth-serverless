@@ -1,0 +1,118 @@
+name: PROD 403 diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SEEDED_CPF: ${{ secrets.SEEDED_CPF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci && npm run package
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Verify deployed handlers and artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_sha="$(python - <<'PY'
+          import base64, hashlib
+          print(base64.b64encode(hashlib.sha256(open('dist.zip', 'rb').read()).digest()).decode())
+          PY
+          )"
+          for function in tc3-auth-prod-auth tc3-auth-prod-authorizer; do
+            config="$RUNNER_TEMP/$function.json"
+            aws lambda get-function-configuration --function-name "$function" --output json > "$config"
+            code_sha="$(aws lambda get-function --function-name "$function" --query 'Configuration.CodeSha256' --output text)"
+            python - "$config" "$function" "$code_sha" "$package_sha" <<'PY'
+          import json, sys
+          config = json.load(open(sys.argv[1], encoding='utf-8'))
+          name, code_sha, package_sha = sys.argv[2:]
+          expected = {
+              'tc3-auth-prod-auth': 'dist/authenticate-customer/handler.handler',
+              'tc3-auth-prod-authorizer': 'dist/authorize-request/handler.handler',
+          }[name]
+          print(json.dumps({
+              'function': name,
+              'handler': config.get('Handler'),
+              'handler_expected': expected,
+              'handler_match': config.get('Handler') == expected,
+              'runtime': config.get('Runtime'),
+              'version': config.get('Version'),
+              'last_modified': config.get('LastModified'),
+              'code_sha_match': code_sha == package_sha,
+          }))
+          PY
+          done
+      - name: Fresh auth and protected-route requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="$(aws apigatewayv2 get-apis --query "Items[?Name=='tc3-auth-prod'].ApiEndpoint | [0]" --output text)"
+          auth_correlation="prod-403-auth-${GITHUB_RUN_ID}"
+          protected_correlation="prod-403-protected-${GITHUB_RUN_ID}"
+          auth_response="$RUNNER_TEMP/auth.json"
+          token_file="$RUNNER_TEMP/token"
+          auth_status="$(curl --silent --show-error --max-time 20 \
+            -H 'content-type: application/json' -H "x-correlation-id: $auth_correlation" \
+            -d "$(python -c 'import json,os; print(json.dumps({"cpf": os.environ["SEEDED_CPF"]}))')" \
+            --output "$auth_response" --write-out '%{http_code}' "$endpoint/auth")"
+          python - "$auth_response" "$token_file" <<'PY'
+          import json, sys
+          value = json.load(open(sys.argv[1], encoding='utf-8'))
+          token = value.get('token', '')
+          if not isinstance(token, str) or len(token.split('.')) != 3:
+              raise SystemExit('authentication did not return a JWT')
+          open(sys.argv[2], 'w', encoding='utf-8').write(token)
+          PY
+          protected_status="$(curl --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $(<"$token_file")" -H "x-correlation-id: $protected_correlation" \
+            --output "$RUNNER_TEMP/protected.json" --write-out '%{http_code}' "$endpoint/api/v1/clientes")"
+          echo "AUTH_HTTP_STATUS=$auth_status PROTECTED_HTTP_STATUS=$protected_status"
+          printf 'AUTH_CORRELATION=%s\nPROTECTED_CORRELATION=%s\n' "$auth_correlation" "$protected_correlation" >> "$GITHUB_ENV"
+      - name: Collect sanitized PROD auth and authorizer evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          start_ms="$(( $(date +%s) * 1000 - 900000 ))"
+          python - "$RUNNER_TEMP/logs.py" <<'PY'
+          import json, re, sys
+          open(sys.argv[1], 'w', encoding='utf-8').write(r'''
+          import json, os, re, subprocess
+          def safe(v):
+              text = str(v or '')
+              text = re.sub(r'\b\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[.\s-]?\d{2}\b', '[REDACTED_CPF]', text)
+              text = re.sub(r'\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b', '[REDACTED_JWT]', text)
+              text = re.sub(r'(?i)\b(password|secret|token|authorization|api[_-]?key)\s*[:=]\s*[^\s,;}]+', r'\1=[REDACTED]', text)
+              return text[:300]
+          for function in ('tc3-auth-prod-auth', 'tc3-auth-prod-authorizer'):
+              raw = subprocess.check_output(['aws','logs','filter-log-events','--log-group-name',f'/aws/lambda/{function}','--start-time',os.environ['START_MS'],'--limit','100','--output','json'])
+              for row in json.loads(raw).get('events', []):
+                  message = row.get('message','')
+                  try: record = json.loads(message)
+                  except Exception: record = {}
+                  correlation = record.get('correlation_id')
+                  if correlation in (os.environ.get('AUTH_CORRELATION'), os.environ.get('PROTECTED_CORRELATION')):
+                      print(json.dumps({'function':function,'event':record.get('event'),'failure_stage':record.get('failure_stage'),'exception_name':safe(record.get('exception_name')),'exception_message':safe(record.get('exception_message')),'error_name':safe(record.get('error_name')),'correlation_id':safe(correlation)}))
+          ''')
+          PY
+          START_MS="$start_ms" python "$RUNNER_TEMP/logs.py"
+        env:
+          AUTH_CORRELATION: prod-403-auth-${{ github.run_id }}
+          PROTECTED_CORRELATION: prod-403-protected-${{ github.run_id }}
