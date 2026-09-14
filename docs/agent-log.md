@@ -1,199 +1,237 @@
-# Agent log
+# Log do agente
 
-## 2026-09-11 — Safe authentication failure diagnostics
+## 2026-09-11 — Diagnóstico seguro de falhas de autenticação
 
-- Added structured error fields to `authenticate_customer_failed`, including
-  safe error name, redacted message, correlation/request IDs, and available
-  Lambda deployment context. Request bodies, CPF values, tokens, passwords,
-  connection strings, and secrets remain excluded from logs.
-- Added DB and JWT failure redaction coverage while preserving the generic HTTP
-  500 response. Validation passed: focused tests (11), full suite (32),
-  typecheck, and build. No AWS apply or destroy was run.
+- Adicionados campos estruturados de erro em `authenticate_customer_failed`,
+  incluindo nome seguro do erro, mensagem redigida, IDs de correlação/request
+  e contexto de deployment da Lambda disponível. Corpos de requisição,
+  valores de CPF, tokens, senhas, connection strings e segredos continuam
+  excluídos dos logs.
+- Adicionada cobertura de redação de falhas de DB e JWT preservando a
+  resposta genérica HTTP 500. Validação aprovada: testes focados (11), suíte
+  completa (32), typecheck e build. Nenhum apply ou destroy da AWS foi
+  executado.
 
-## 2026-09-09 — Kubernetes remote-state backend listener
+## 2026-09-09 — Backend de state remoto do Kubernetes para o listener
 
-- CI now reads the selected HML/production `internal_alb_listener_arn` directly
-  from the matching `repo-k8s-infra` Terraform state, validates the listener ARN,
-  and fails closed when state or output is unavailable.
-- Preserved production rejection of the known HML listener. No AWS apply or
-  destroy was run.
+- O CI agora lê o `internal_alb_listener_arn` de HML/produção selecionado
+  diretamente do state do Terraform correspondente do `repo-k8s-infra`,
+  valida o ARN do listener e falha de forma segura quando o state ou o
+  output não está disponível.
+- Preservada a rejeição em produção do listener de HML conhecido. Nenhum
+  apply ou destroy da AWS foi executado.
 
-## 2026-09-04 — API Gateway VPC Link remote-state networking
+## 2026-09-04 — Rede via state remoto do VPC Link do API Gateway
 
-- HML and production now consume `private_subnet_ids` and
-  `internal_alb_security_group_id` from matching `repo-k8s-infra` state for the
-  private API Gateway VPC Link. Removed empty GitHub VPC Link inputs; the
-  existing ALB listener ARN integration and private route remain unchanged.
-- No AWS apply or destroy was run.
+- HML e produção agora consomem `private_subnet_ids` e
+  `internal_alb_security_group_id` do state correspondente do
+  `repo-k8s-infra` para o VPC Link privado do API Gateway. Removidas as
+  entradas vazias de VPC Link do GitHub; a integração existente por ARN de
+  listener do ALB e a rota privada permanecem inalteradas.
+- Nenhum apply ou destroy da AWS foi executado.
 
-## 2026-09-04 — Remote-state Lambda networking
+## 2026-09-04 — Rede da Lambda via state remoto
 
-- Removed GitHub subnet/security-group inputs, including stale HML subnet
-  handling that caused Terraform plan failures.
-- HML and production now read matching private subnets from `repo-k8s-infra`
-  state and the database security group from `repo-db-infra` state. No AWS
-  apply or destroy was run.
+- Removidas as entradas de sub-rede/security group do GitHub, incluindo o
+  tratamento obsoleto de sub-rede de HML que causava falhas no plan do
+  Terraform.
+- HML e produção agora leem as sub-redes privadas correspondentes do state
+  do `repo-k8s-infra` e o security group do banco do state do
+  `repo-db-infra`. Nenhum apply ou destroy da AWS foi executado.
 
-## 2026-09-04 — Explicit production destroy workflow
+## 2026-09-04 — Workflow explícito de destroy de produção
 
-- Added dispatch-only production destroy with the protected `production`
-  Environment and exact `DESTROY PROD` confirmation.
-- Kept HML destroy behavior, state backend, and external JWT/database secrets
-  unchanged; destroy-only Terraform placeholders are used without deleting
-  those external resources. No destroy was executed.
+- Adicionado destroy de produção apenas via dispatch, com o Environment
+  protegido `production` e a confirmação exata `DESTROY PROD`.
+- Mantidos o comportamento de destroy de HML, o backend de state e os
+  segredos externos de JWT/banco inalterados; os placeholders do Terraform
+  usados apenas em destroy são usados sem excluir esses recursos externos.
+  Nenhum destroy foi executado.
 
-## 2026-08-31 — Academy workflow and exact Lambda artifact
+## 2026-08-31 — Workflow Academy e artefato exato da Lambda
 
-- Updated documentation and workflow-contract coverage for the always-Academy
-  HML/production workflow and its actual credential references.
-- Included `dist.zip` with the saved Terraform plan artifact and download it at
-  the repository root before applying the exact plan.
-- No AWS action, commit, or push was performed.
+- Atualizadas a documentação e a cobertura de contrato do workflow para o
+  workflow de HML/produção sempre-Academy e suas referências reais de
+  credenciais.
+- Incluído o `dist.zip` junto com o artefato de plano salvo do Terraform e
+  seu download na raiz do repositório antes de aplicar o plano exato.
+- Nenhuma ação AWS, commit ou push foi realizado.
 
-## 2026-08-31 — RDS TLS connection contract
+## 2026-08-31 — Contrato de conexão TLS do RDS
 
-- Added `sslmode=require` to the Lambda's Secrets Manager connection-details
-  fallback, matching the RDS `force_ssl=1` deployment contract.
-- Added focused coverage for the fallback while preserving existing secret
-  loading and explicit `DATABASE_URL` behavior. No AWS action was run.
+- Adicionado `sslmode=require` ao fallback de detalhes de conexão do
+  Secrets Manager da Lambda, alinhando com o contrato de deployment
+  `force_ssl=1` do RDS.
+- Adicionada cobertura focada para o fallback preservando o carregamento
+  existente de segredo e o comportamento explícito de `DATABASE_URL`.
+  Nenhuma ação AWS foi executada.
 
-## 2026-08-31 — Production push guard and route observability
+## 2026-08-31 — Guard de push de produção e observabilidade de rota
 
-- Limited the production confirmation check to manual dispatches so automatic
-  `main` pushes can deploy after the protected `production` Environment gate;
-  manual production apply still requires `APPLY PROD`.
-- Added native CloudWatch Lambda error and API Gateway route 5xx alarms to both
-  Terraform environments, including the optional VPC Link route.
-- No commit, push, AWS apply, or destroy was performed.
+- Limitada a checagem de confirmação de produção a dispatches manuais para
+  que pushes automáticos para `main` possam fazer deploy após o gate do
+  Environment protegido `production`; o apply manual de produção ainda
+  exige `APPLY PROD`.
+- Adicionados alarmes nativos do CloudWatch para erro de Lambda e 5xx de
+  rota do API Gateway aos dois ambientes do Terraform, incluindo a rota
+  opcional do VPC Link.
+- Nenhum commit, push, apply ou destroy da AWS foi executado.
 
-## 2026-08-30 — Explicit JWT consumer contract
+## 2026-08-30 — Contrato explícito de consumidor do JWT
 
-- Added code-level JWT contract metadata and subject validation. `/auth` now
-  emits algorithm, issuer, audience, expiry, and `Cliente.id` subject semantics;
-  HML/production Terraform outputs expose the same contract.
-- Added contract and subject tests. No AWS apply/destroy, commit, or push was
-  performed.
+- Adicionados metadados de contrato do JWT em nível de código e validação de
+  subject. `/auth` agora emite algorithm, issuer, audience, expiry e
+  semântica de subject `Cliente.id`; os outputs do Terraform de
+  HML/produção expõem o mesmo contrato.
+- Adicionados testes de contrato e de subject. Nenhum apply/destroy da AWS,
+  commit ou push foi realizado.
 
-## 2026-08-30 — Confirmed auth delivery target
+## 2026-08-30 — Alvo confirmado de entrega da auth
 
-- Updated the auth workflow so the same temporary AWS Academy credentials can
-  serve HML and production, with separate environment state/config/artifacts.
-- Preserved automatic `develop` HML delivery, protected `main` production
-  approval, and manual HML-only destructive operations.
-- Reconciled API Gateway route/integration outputs and refreshed stale RFC and
-  AWS setup documentation without adding unsupported cross-repository wiring.
-- Added workflow and malformed-Bearer tests. No AWS apply/destroy, commit, or
-  push was performed.
+- Atualizado o workflow de auth para que as mesmas credenciais temporárias
+  do AWS Academy possam servir HML e produção, com state/config/artefatos
+  separados por ambiente.
+- Preservados a entrega automática de HML em `develop`, a aprovação
+  protegida de produção em `main`, e as operações destrutivas manuais
+  restritas a HML.
+- Reconciliados os outputs de rota/integração do API Gateway e atualizada a
+  documentação obsoleta de RFC e de setup da AWS sem adicionar wiring entre
+  repositórios não suportado.
+- Adicionados testes de workflow e de Bearer malformado. Nenhum apply/destroy
+  da AWS, commit ou push foi realizado.
 
 ## 2026-08-10
 
-- Implemented CPF validation, PostgreSQL customer lookup, active-status check,
-  RS256 issuance, structured responses, and tests.
-- Added HML Terraform for both Lambdas, IAM, logs, Secrets Manager/SSM runtime
-  references, HTTP API auth route, and optional RFC-003 VPC Link protected route.
-- Validation: `npm test`, `npm run typecheck`, `npm run build`, and
-  `terraform validate` passed. No Terraform apply was run.
+- Implementados validação de CPF, consulta de cliente no PostgreSQL,
+  checagem de status ativo, emissão RS256, respostas estruturadas e testes.
+- Adicionado Terraform de HML para as duas Lambdas, IAM, logs, referências
+  em runtime de Secrets Manager/SSM, rota de auth da HTTP API, e rota
+  protegida opcional de VPC Link da RFC-003.
+- Validação: `npm test`, `npm run typecheck`, `npm run build` e
+  `terraform validate` foram aprovados. Nenhum apply do Terraform foi
+  executado.
 
-## 2026-08-13 — CPF lookup contract
+## 2026-08-13 — Contrato de consulta de CPF
 
-- Fast-forward-only pull confirmed the four `Async-And-Furious` repositories
-  were already aligned with their upstream branches; comparison repositories
-  were not touched.
-- Aligned the customer lookup with the application schema: `"Cliente"`,
-  `documento`, `tipo_documento = 'CPF'`, and `ativo AS active`.
-- Removed the runtime SQL override and added focused active, inactive, missing,
-  and query-contract coverage.
-- Validation passed: 12 tests, typecheck, lint, build, `git diff --check`, and a
-  disposable PostgreSQL 16 contract check covering CPF status and CNPJ
-  exclusion.
-- No commit, push, AWS mutation, Terraform apply, or production action ran.
+- Um pull fast-forward-only confirmou que os quatro repositórios
+  `Async-And-Furious` já estavam alinhados com seus branches upstream;
+  repositórios de comparação não foram tocados.
+- Alinhada a consulta de cliente com o schema da aplicação: `"Cliente"`,
+  `documento`, `tipo_documento = 'CPF'` e `ativo AS active`.
+- Removido o override de SQL em runtime e adicionada cobertura focada para
+  ativo, inativo, ausente e contrato de query.
+- Validação aprovada: 12 testes, typecheck, lint, build,
+  `git diff --check`, e uma verificação de contrato descartável em
+  PostgreSQL 16 cobrindo status de CPF e exclusão de CNPJ.
+- Nenhum commit, push, mutação AWS, apply do Terraform ou ação de produção
+  foi executado.
 
-## 2026-08-15 — CI/CD workflow
+## 2026-08-15 — Workflow de CI/CD
 
-- Added deterministic Lambda packaging and a manual, OIDC-backed Terraform
-  workflow for HML and production with GitHub Environment gates.
-- Production apply is never triggered by pushes; it is available only as an
-  explicit manual workflow input.
+- Adicionados empacotamento determinístico da Lambda e um workflow manual
+  de Terraform apoiado em OIDC para HML e produção com gates de GitHub
+  Environment.
+- O apply de produção nunca é disparado por pushes; está disponível apenas
+  como entrada manual explícita do workflow.
 
-## 2026-08-16 — Existing Lambda execution roles
+## 2026-08-16 — Roles de execução de Lambda existentes
 
-- Added optional HML/production Lambda and authorizer execution-role ARN
-  variables for AWS Academy/Lab. Supplied roles bypass Terraform IAM role
-  creation and policy resources; empty values retain managed role creation.
-- Wired the non-secret GitHub Environment variables into the workflow and
-  documented `gh variable set` commands and the LabRole permissions caveat.
-- Validation was left to the orchestrator; no Terraform apply was run.
+- Adicionadas variáveis opcionais de ARN de role de execução de HML/produção
+  para a Lambda e o authorizer, para AWS Academy/Lab. Roles fornecidas
+  ignoram a criação de role IAM e os recursos de policy do Terraform;
+  valores vazios mantêm a criação gerenciada de role.
+- Conectadas as variáveis não sensíveis do GitHub Environment ao workflow e
+  documentados os comandos `gh variable set` e a ressalva de permissões do
+  LabRole.
+- A validação ficou a cargo do orquestrador; nenhum apply do Terraform foi
+  executado.
 
-## 2026-08-23 — Cross-repository JWT contract
+## 2026-08-23 — Contrato de JWT entre repositórios
 
-- Standardized Lambda tokens on `sub=Cliente.id`, RS256, issuer
-  `repo-auth-serverless`, audience `async-furious-project`, and 1800 seconds;
-  raw CPF/document claims are no longer emitted.
-- The monolith consumer must resolve `sub` by `Cliente.id` and active status.
-- No AWS or Terraform apply was run. Lambda-to-PostgreSQL SSL parameters remain
-  an operational follow-up because the deployed RDS CA/SSL policy is not known.
+- Padronizados os tokens da Lambda em `sub=Cliente.id`, RS256, issuer
+  `repo-auth-serverless`, audience `async-furious-project` e 1800 segundos;
+  claims brutas de CPF/documento não são mais emitidas.
+- O consumidor no monólito deve resolver o `sub` por `Cliente.id` e status
+  ativo.
+- Nenhum apply da AWS ou do Terraform foi executado. Os parâmetros de SSL da
+  conexão Lambda-PostgreSQL permanecem como follow-up operacional porque a
+  política de CA/SSL do RDS implantado não é conhecida.
 
-## 2026-08-24 — AWS Academy compatibility
+## 2026-08-24 — Compatibilidade com AWS Academy
 
-- Added explicit `academy_mode` and required `lab_role_arn` inputs to HML and
-  production Terraform. Academy mode reuses the existing role for both Lambdas
-  and skips all IAM role, attachment, and inline-policy resources.
-- Added workflow dispatch and environment wiring for Academy mode; it requires
-  temporary credentials and does not fall back to GitHub OIDC. Updated README
-  with required integration values and role permissions caveats.
-- Validation passed: lint, typecheck, 19 tests, build, Terraform formatting, and
-  `terraform validate` for HML and production. No Terraform apply was run.
+- Adicionadas entradas explícitas `academy_mode` e `lab_role_arn`
+  obrigatórias ao Terraform de HML e produção. O modo Academy reutiliza a
+  role existente para as duas Lambdas e pula todos os recursos de role IAM,
+  attachment e policy inline.
+- Adicionados dispatch de workflow e wiring de ambiente para o modo Academy;
+  ele exige credenciais temporárias e não faz fallback para GitHub OIDC.
+  Atualizado o README com os valores de integração obrigatórios e as
+  ressalvas de permissões de role.
+- Validação aprovada: lint, typecheck, 19 testes, build, formatação do
+  Terraform e `terraform validate` para HML e produção. Nenhum apply do
+  Terraform foi executado.
 
-## 2026-08-24 — Auth deployment workflow contract
+## 2026-08-24 — Contrato do workflow de deploy de auth
 
-- Added the explicit `deploy_auth_only` dispatch input and exported
-  `TF_VAR_deploy_auth_only` with the backend URI safety rule: a configured
-  `BACKEND_INTEGRATION_URI` always selects full deployment.
-- Documented auth-only/full-deployment selection and retained Academy LabRole
-  reuse without IAM resource creation. No Terraform apply was run.
+- Adicionada a entrada explícita de dispatch `deploy_auth_only` e exportado
+  `TF_VAR_deploy_auth_only` com a regra de segurança de URI de backend: um
+  `BACKEND_INTEGRATION_URI` configurado sempre seleciona o deployment
+  completo.
+- Documentada a seleção de auth-only/deployment completo e mantida a
+  reutilização do LabRole do Academy sem criação de recursos IAM. Nenhum
+  apply do Terraform foi executado.
 
-## 2026-08-24 — HCP Terraform state
+## 2026-08-24 — State do Terraform no HCP Terraform
 
-- Switched HML and production roots to the HCP Terraform remote backend with
-  local execution and state-only workspaces `tc3-auth-hml`/`tc3-auth-prod`.
-- Added the GitHub `TF_API_TOKEN` mapping; AWS Academy credentials remain GitHub
-  secrets and are not configured in HCP Terraform. No Terraform apply was run.
+- Migrados os roots de HML e produção para o backend remoto do HCP Terraform
+  com execução local e workspaces apenas de state
+  `tc3-auth-hml`/`tc3-auth-prod`.
+- Adicionado o mapeamento `TF_API_TOKEN` do GitHub; as credenciais do AWS
+  Academy continuam como secrets do GitHub e não são configuradas no HCP
+  Terraform. Nenhum apply do Terraform foi executado.
 
-## 2026-08-24 — HCP Terraform backend initialization
+## 2026-08-24 — Inicialização do backend do HCP Terraform
 
-- Configured the HCP Terraform organization and static HML/production workspace
-  names in each Terraform root.
-- Simplified workflow initialization to use the root backend configuration;
-  Academy credential handling remains unchanged. No Terraform apply was run.
+- Configurados a organização do HCP Terraform e os nomes estáticos dos
+  workspaces de HML/produção em cada root do Terraform.
+- Simplificada a inicialização do workflow para usar a configuração de
+  backend do root; o tratamento de credenciais do Academy permanece
+  inalterado. Nenhum apply do Terraform foi executado.
 
-## 2026-08-24 — Remote backend local execution
+## 2026-08-24 — Execução local com backend remoto
 
-- Replaced workflow Terraform variable/plan artifact handling with a temporary
-  `terraform.auto.tfvars.json`; plan now runs without `-out` and apply executes
-  directly. HML, production, Academy credentials, and TF_TOKEN handling remain
-  unchanged. No Terraform apply was run.
+- Substituído o tratamento de variáveis/artefato de plano do Terraform no
+  workflow por um `terraform.auto.tfvars.json` temporário; o plan agora roda
+  sem `-out` e o apply é executado diretamente. HML, produção, credenciais
+  do Academy e o tratamento de TF_TOKEN permanecem inalterados. Nenhum apply
+  do Terraform foi executado.
 
-## 2026-08-26 — Direct apply workflow
+## 2026-08-26 — Workflow de apply direto
 
-- Split manual Terraform plan and apply into separate jobs. Apply now runs after
-  validation without a plan step while retaining remote backend and Academy
-  credential handling. No Terraform apply was run.
+- Divididos o plan e o apply manuais do Terraform em jobs separados. O apply
+  agora roda após a validação sem uma etapa de plan, mantendo o backend
+  remoto e o tratamento de credenciais do Academy. Nenhum apply do Terraform
+  foi executado.
 
-## 2026-08-29 — HML/production deployment contract
+## 2026-08-29 — Contrato de deployment de HML/produção
 
-- HML now applies automatically from `develop`; production remains a manual
-  protected-Environment apply with an explicit confirmation guard.
-- Added credential and Terraform state preflight checks, production Academy
-  rejection, and a protected apply job that downloads and applies the exact
-  uploaded plan artifact.
-- Added security-contract coverage for active-customer RS256 issuance and
-  authorizer decisions, plus correlation-safe structured success/error logs.
-- Validation was run locally; no AWS command, Terraform apply, or destroy was run.
+- HML agora aplica automaticamente a partir de `develop`; produção continua
+  sendo um apply manual com Environment protegido e um guard de confirmação
+  explícito.
+- Adicionadas checagens de preflight de credenciais e de state do Terraform,
+  rejeição de Academy em produção, e um job de apply protegido que baixa e
+  aplica o artefato de plano exato enviado.
+- Adicionada cobertura de contrato de segurança para emissão RS256 de
+  cliente ativo e decisões do authorizer, além de logs estruturados de
+  sucesso/erro seguros para correlação.
+- Validação executada localmente; nenhum comando AWS, apply ou destroy do
+  Terraform foi executado.
 
-## 2026-09-03 — Production backend listener guard
+## 2026-09-03 — Guard do listener de backend de produção
 
-- Production now requires its environment-scoped `BACKEND_INTEGRATION_URI` and
-  rejects the known HML `tc3-hml-internal` listener instead of cross-wiring the
-  API Gateway integration. The input remains the approved listener ARN output
-  from the matching `repo-k8s-infra` state; no remote-state shortcut or secret
-  handling was added. No Terraform apply was run.
+- Produção agora exige seu `BACKEND_INTEGRATION_URI` com escopo de ambiente
+  e rejeita o listener de HML conhecido `tc3-hml-internal`, em vez de
+  cruzar o wiring da integração do API Gateway. A entrada continua sendo o
+  ARN de listener aprovado, vindo do state correspondente do
+  `repo-k8s-infra`; nenhum atalho de state remoto ou tratamento de segredo
+  foi adicionado. Nenhum apply do Terraform foi executado.

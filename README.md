@@ -1,95 +1,101 @@
 # repo-auth-serverless
 
-Tech Challenge Fase 3 — serverless CPF authentication and JWT authorization.
+Tech Challenge Fase 3 — autenticação via CPF e autorização JWT serverless.
 
-## Scope
+## Escopo
 
-- `src/authenticate-customer`: validates CPF, checks customer existence/status, issues JWT.
-- `src/authorize-request`: Lambda Authorizer that validates JWT on protected routes.
+- `src/authenticate-customer`: valida o CPF, verifica existência/status do cliente e emite o JWT.
+- `src/authorize-request`: Lambda Authorizer que valida o JWT nas rotas protegidas.
 
-Out of scope: monolith code, EKS provisioning, RDS provisioning, business schema duplication.
+Fora de escopo: código do monólito, provisionamento de EKS, provisionamento de RDS, duplicação do schema de negócio.
 
-Authentication validates CPF check digits, requires an active customer, and
-returns a generic unauthorized response for invalid or unknown credentials.
-JWTs use strict RS256 and a 30-minute (`1800` second) expiry. The emitted
-contract is explicit in the authentication response and Terraform outputs:
-`algorithm=RS256`, `issuer` from `JWT_ISSUER` (the roots enforce
-`repo-auth-serverless`), `audience` from `JWT_AUDIENCE` (the roots enforce
-`async-furious-project`), and `subject_claim=Cliente.id`. The JWT `sub` is the
-customer's `Cliente.id` string, never the CPF; the monolith must resolve that
-identity and re-check active status. Verifiers must enforce RS256, issuer,
-audience, and `exp`.
-Correlation IDs are returned and propagated to protected backend requests.
+A autenticação valida os dígitos verificadores do CPF, exige um cliente ativo e
+retorna uma resposta genérica de não autorizado para credenciais inválidas ou
+desconhecidas. Os JWTs usam RS256 estrito e expiração de 30 minutos (`1800`
+segundos). O contrato emitido é explícito na resposta de autenticação e nos
+outputs do Terraform: `algorithm=RS256`, `issuer` a partir de `JWT_ISSUER` (os
+roots impõem `repo-auth-serverless`), `audience` a partir de `JWT_AUDIENCE`
+(os roots impõem `async-furious-project`), e `subject_claim=Cliente.id`. O
+`sub` do JWT é a string `Cliente.id` do cliente, nunca o CPF; o monólito deve
+resolver essa identidade e reverificar o status ativo. Os verificadores devem
+exigir RS256, issuer, audience e `exp`.
+Os correlation IDs são retornados e propagados às requisições protegidas do
+backend.
 
-Each environment provisions native CloudWatch alarms for authentication and
-authorizer Lambda errors plus HTTP API `5XXError` metrics for `/auth` and, when
-configured, the protected VPC Link route. Alarms are created without a
-notification dependency so an account can attach its approved actions later.
+Cada ambiente provisiona alarmes nativos do CloudWatch para erros das Lambdas
+de autenticação e de authorizer, além de métricas `5XXError` da HTTP API para
+`/auth` e, quando configurada, a rota protegida do VPC Link. Os alarmes são
+criados sem dependência de notificação, para que uma conta possa anexar suas
+ações aprovadas posteriormente.
 
 ## Status
 
-HML applies automatically from `develop`; pushes to `main` apply production
-after the protected `production` Environment approval. Manual applies remain
-available through `workflow_dispatch` and require the exact production
-confirmation `APPLY PROD`. CI builds, tests, packages, and includes the exact
-`dist.zip` in the saved Terraform plan artifact; apply downloads that same
-artifact before applying.
+O ambiente HML aplica automaticamente a partir de `develop`; pushes para
+`main` aplicam produção após a aprovação do Environment protegido
+`production`. Aplicações manuais continuam disponíveis via
+`workflow_dispatch` e exigem a confirmação exata de produção `APPLY PROD`. O
+CI builda, testa, empacota e inclui o `dist.zip` exato no artefato salvo do
+plano do Terraform; o apply baixa esse mesmo artefato antes de aplicar.
 
-## Packaging and deployment
+## Empacotamento e deploy
 
-Run `npm run package` locally to compile the handlers and create a deterministic
-`dist.zip` containing only production dependencies. The workflow uses the same
-package command and artifact for a manually selected `plan` or `apply` in
-`hml` or `prod`.
+Execute `npm run package` localmente para compilar os handlers e criar um
+`dist.zip` determinístico contendo apenas as dependências de produção. O
+workflow usa o mesmo comando de empacotamento e artefato para um `plan` ou
+`apply` selecionado manualmente em `hml` ou `prod`.
 
-Configure the GitHub Environments `hml` and `production` with these secrets:
+Configure os GitHub Environments `hml` e `production` com estes secrets:
 
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
-  (temporary AWS Academy credentials).
-- `JWT_PRIVATE_KEY_SECRET_ARN` and `DATABASE_SECRET_ARN`.
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`
+  (credenciais temporárias do AWS Academy).
+- `JWT_PRIVATE_KEY_SECRET_ARN` e `DATABASE_SECRET_ARN`.
 
-The workflow always uses the Academy credential model for both logical
-environments: pushes to `develop` deploy HML automatically, while production
-uses the protected `production` Environment approval. Manual runs select
-`hml` or `prod` and an operation; there is no Academy-mode toggle.
+O workflow sempre usa o modelo de credenciais do Academy para os dois
+ambientes lógicos: pushes para `develop` fazem deploy de HML automaticamente,
+enquanto produção usa a aprovação do Environment protegido `production`.
+Execuções manuais selecionam `hml` ou `prod` e uma operação; não há alternância
+de modo Academy.
 
-The manual dispatch exposes `deploy_auth_only`, which defaults to `false`; HML
-and production deployment runs derive a valid backend listener from matching
-Kubernetes state and always select the full deployment path.
+O dispatch manual expõe `deploy_auth_only`, que assume `false` por padrão; as
+execuções de deploy de HML e produção derivam um listener de backend válido a
+partir do estado correspondente do Kubernetes e sempre selecionam o caminho
+completo de deployment.
 
-Required non-secret Actions variables are `AWS_REGION`, `JWT_PUBLIC_KEY_PARAMETER_NAME`,
-and `JWT_PUBLIC_KEY_PARAMETER_ARN`. The Lambda consumes matching private
-subnets from `repo-k8s-infra` state and the database security group from
-`repo-db-infra` state; these IDs must not be set as GitHub variables. Optional variables are
-`AUTH_LAMBDA_ROLE_ARN`, and `AUTHORIZER_LAMBDA_ROLE_ARN`. VPC Link private
-subnet IDs, the internal ALB security group ID, and
-`internal_alb_listener_arn` are read from the matching `repo-k8s-infra` remote
-state; they are not GitHub variables. No AWS resource IDs are stored in this
-repository.
+As variáveis não sensíveis obrigatórias do Actions são `AWS_REGION`,
+`JWT_PUBLIC_KEY_PARAMETER_NAME` e `JWT_PUBLIC_KEY_PARAMETER_ARN`. A Lambda
+consome as sub-redes privadas correspondentes do state do `repo-k8s-infra` e o
+security group do banco do state do `repo-db-infra`; esses IDs não devem ser
+definidos como variáveis do GitHub. Variáveis opcionais são
+`AUTH_LAMBDA_ROLE_ARN` e `AUTHORIZER_LAMBDA_ROLE_ARN`. Os IDs de sub-rede
+privada do VPC Link, o security group do ALB interno e o
+`internal_alb_listener_arn` são lidos do state remoto correspondente do
+`repo-k8s-infra`; eles não são variáveis do GitHub. Nenhum ID de recurso AWS é
+armazenado neste repositório.
 
-`BACKEND_INTEGRATION_URI` is derived during CI from the selected environment's
-`repo-k8s-infra` Terraform state output `internal_alb_listener_arn`. The
-workflow fails closed when that state or output is unavailable or is not a
-valid listener ARN. Production also rejects the known HML listener name
-`tc3-hml-internal`; it never falls back to HML or to an auth-only deployment.
+`BACKEND_INTEGRATION_URI` é derivado durante o CI a partir do output do state
+do Terraform do `repo-k8s-infra` do ambiente selecionado,
+`internal_alb_listener_arn`. O workflow falha de forma segura (fail closed)
+quando esse state ou output não está disponível ou não é um ARN de listener
+válido. Produção também rejeita o listener HML conhecido `tc3-hml-internal`;
+ela nunca faz fallback para HML ou para um deployment apenas de auth.
 
-For AWS Academy/Lab, set the existing Lambda execution role as a non-secret
-environment variable:
+Para AWS Academy/Lab, defina a role de execução da Lambda existente como uma
+variável de ambiente não sensível:
 
 ```bash
 gh variable set LAB_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
 ```
 
-The Academy configuration creates no IAM roles, role attachments, or inline
-policies and uses `LAB_ROLE_ARN` for both Lambdas. The existing role must trust Lambda and already
-permit the function's CloudWatch, Secrets Manager, VPC, and/or SSM access;
-AWS Academy `LabRole` permissions are account-limited and may not support every
-resource configuration.
+A configuração do Academy não cria roles IAM, anexos de role ou policies
+inline, e usa `LAB_ROLE_ARN` para as duas Lambdas. A role existente deve
+confiar em Lambda e já permitir o acesso da função a CloudWatch, Secrets
+Manager, VPC e/ou SSM; as permissões do `LabRole` do AWS Academy são limitadas
+por conta e podem não suportar toda configuração de recurso.
 
-### Rotate AWS Academy credentials with `gh`
+### Rotacionar credenciais do AWS Academy com `gh`
 
-Set each temporary credential from a file through standard input, for the
-environment being deployed:
+Defina cada credencial temporária a partir de um arquivo via stdin, para o
+ambiente que está sendo implantado:
 
 ```bash
 gh secret set AWS_ACCESS_KEY_ID --env hml < access-key-id.txt
@@ -97,7 +103,7 @@ gh secret set AWS_SECRET_ACCESS_KEY --env hml < secret-access-key.txt
 gh secret set AWS_SESSION_TOKEN --env hml < session-token.txt
 ```
 
-Remove the environment secrets after the session expires:
+Remova os secrets do ambiente depois que a sessão expirar:
 
 ```bash
 gh secret delete AWS_ACCESS_KEY_ID --env hml
@@ -108,51 +114,57 @@ gh secret delete AWS_SECRET_ACCESS_KEY --env production
 gh secret delete AWS_SESSION_TOKEN --env production
 ```
 
-Use `-R OWNER/REPOSITORY` with these commands when running them outside the
-repository checkout. Do not put temporary credentials in command arguments or
-commit the source files.
+Use `-R OWNER/REPOSITORY` com esses comandos ao executá-los fora do checkout
+do repositório. Não coloque credenciais temporárias em argumentos de comando
+nem faça commit dos arquivos de origem.
 
-### Terraform state and local execution
+### State do Terraform e execução local
 
-Terraform runs on the Actions runner and stores state in the account-qualified
-S3 bucket `tc3-tfstate-<account-id>` at
-`repo-auth-serverless/<environment>/terraform.tfstate`, with native S3 locking.
-Normal `plan` and `apply` operations bootstrap that bucket before initialization.
+O Terraform roda no runner do Actions e armazena o state no bucket S3
+qualificado por conta `tc3-tfstate-<account-id>`, em
+`repo-auth-serverless/<environment>/terraform.tfstate`, com locking nativo do
+S3. As operações normais de `plan` e `apply` fazem o bootstrap desse bucket
+antes da inicialização.
 
-Manual `destroy-plan` and `destroy` operations are intentionally limited to
-`environment=hml`; production destroy is rejected.
-`destroy` additionally requires the exact confirmation `DESTROY HML`.
-The destroy preflight only reads the current account's existing bucket and
-state. A missing bucket, missing key, zero-byte object, or state with no managed
-resource instances is a successful no-op. Authorization and other AWS errors
-fail the run. Destroy never creates or changes backend settings, and retains
-both the bucket and state object.
+As operações manuais `destroy-plan` e `destroy` são intencionalmente
+limitadas a `environment=hml`; o destroy de produção é rejeitado.
+`destroy` também exige a confirmação exata `DESTROY HML`.
+O preflight de destroy apenas lê o bucket e o state existentes da conta
+atual. Um bucket ausente, chave ausente, objeto de zero bytes, ou state sem
+nenhuma instância de recurso gerenciado é um no-op bem-sucedido. Erros de
+autorização e outros erros da AWS falham a execução. O destroy nunca cria ou
+altera configurações de backend, e mantém tanto o bucket quanto o objeto de
+state.
 
-Destroy operations skip Lambda packaging and deployment-only JWT/database
-input checks. Terraform still evaluates required root variables before building
-a destroy graph, so the workflow supplies clearly named, non-secret placeholders
-and disables deploy-only VPC/backend branches. `destroy-plan` only plans;
-confirmed `destroy` saves a destroy plan and applies that exact file.
+As operações de destroy pulam o empacotamento da Lambda e as verificações de
+entrada de JWT/banco que só se aplicam ao deploy. O Terraform ainda avalia as
+variáveis obrigatórias dos roots antes de montar um grafo de destroy, então o
+workflow fornece placeholders não sensíveis, com nomes claros, e desabilita
+os branches de VPC/backend usados apenas no deploy. `destroy-plan` apenas
+planeja; um `destroy` confirmado salva um plano de destroy e aplica esse
+arquivo exato.
 
-For local execution, generate an uncommitted `backend.hcl` for the existing S3
-backend, initialize the selected root, and run the usual Terraform commands.
-Use `infra/prod` only for plan/apply; run apply only after review.
-Provide the required variables through an uncommitted tfvars file.
-Integration values still required for a full deployment are the JWT private-key
-Secrets Manager ARN, database secret ARN, and JWT public-key SSM parameter name
-and ARN. Lambda VPC networking is read from matching K8s/DB remote state, and
-When `deploy_auth_only=false`, the ALB/NLB listener ARN is supplied as
-`backend_integration_uri`. The API Gateway backend URI is not known by this
-repository and must be supplied by the Kubernetes/infrastructure deployment;
-it must be an ALB/NLB listener ARN, not a normal HTTP URL. The VPC Link uses
-the matching private subnets and `internal_alb_security_group_id` from
-`repo-k8s-infra` state to enable the RFC-003 protected EKS route and Lambda
-Authorizer.
-The Terraform module default `deploy_auth_only=true` is a safe local auth-only
-fallback. The workflow default is `false`; its backend URI rule above ensures
-that an orchestrated full deployment enables the protected backend path.
+Para execução local, gere um `backend.hcl` não versionado para o backend S3
+existente, inicialize o root selecionado e execute os comandos usuais do
+Terraform. Use `infra/prod` apenas para plan/apply; execute apply somente
+após revisão. Forneça as variáveis obrigatórias por meio de um arquivo tfvars
+não versionado. Os valores de integração ainda necessários para um deployment
+completo são o ARN do Secrets Manager da chave privada do JWT, o ARN do
+segredo do banco, e o nome e ARN do parâmetro SSM da chave pública do JWT. A
+rede da VPC da Lambda é lida do state remoto correspondente de K8s/DB, e
+quando `deploy_auth_only=false`, o ARN do listener do ALB/NLB é fornecido como
+`backend_integration_uri`. O URI de backend do API Gateway não é conhecido por
+este repositório e deve ser fornecido pelo deployment de
+Kubernetes/infraestrutura; deve ser um ARN de listener de ALB/NLB, não uma URL
+HTTP normal. O VPC Link usa as sub-redes privadas correspondentes e o
+`internal_alb_security_group_id` do state do `repo-k8s-infra` para habilitar a
+rota protegida do EKS da RFC-003 e o Lambda Authorizer.
+O padrão `deploy_auth_only=true` do módulo Terraform é um fallback seguro,
+apenas de auth, para uso local. O padrão do workflow é `false`; a regra de
+URI de backend acima garante que um deployment completo orquestrado habilite
+o caminho protegido de backend.
 
-## Local development
+## Desenvolvimento local
 
 ```bash
 npm install
@@ -160,12 +172,13 @@ npm run typecheck
 npm test
 ```
 
-JWT signing and API Gateway ownership follow accepted RFC-003 and RFC-006.
-Terraform also exposes environment-scoped API Gateway outputs: API id and
-endpoint, `/auth` route key, authorizer id, and protected route, integration,
-VPC Link, and backend URI values when full integration is enabled. Lambda
-network inputs use the matching approved remote-state contracts.
-Customer lookup uses the fixed cross-repository schema contract:
+A assinatura do JWT e a propriedade do API Gateway seguem as RFC-003 e
+RFC-006 aprovadas. O Terraform também expõe outputs do API Gateway com escopo
+por ambiente: id e endpoint da API, route key de `/auth`, id do authorizer, e
+valores de rota, integração, VPC Link e URI de backend protegidos quando a
+integração completa está habilitada. As entradas de rede da Lambda usam os
+contratos de state remoto aprovados correspondentes.
+A consulta ao cliente usa o contrato de schema fixo entre repositórios:
 
 ```sql
 SELECT "id", "ativo" AS "active"
