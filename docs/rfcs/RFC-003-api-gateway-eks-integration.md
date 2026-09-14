@@ -1,54 +1,59 @@
 # RFC-003 — API Gateway e integração com EKS
 
-- **Status**: Accepted
-- **Date**: 2026-07-29
-- **Source of truth**: the approved workspace contract. This implementation
-  `repo-auth-serverless` and `repo-k8s-infra` for local visibility — update
-  copy records the auth repository side of the decision.
+- **Status**: Aceito
+- **Data**: 2026-07-29
+- **Fonte de verdade**: o contrato aprovado do workspace. Esta implementação
+  `repo-auth-serverless` e `repo-k8s-infra` para visibilidade local — esta
+  cópia registra o lado do repositório de auth da decisão.
 
-## Context
+## Contexto
 
-HANDOFF.md §6.2 left API Gateway ownership open, and §4.2 suggested (without
-deciding) a VPC Link + internal load balancer integration between the
-Gateway and the EKS-hosted application. Both needed a decision before
-`repo-k8s-infra`'s apply pipeline or `repo-auth-serverless`'s Gateway
-resources could be implemented for real.
+O HANDOFF.md §6.2 deixou a propriedade do API Gateway em aberto, e o §4.2
+sugeriu (sem decidir) uma integração via VPC Link + load balancer interno
+entre o Gateway e a aplicação hospedada no EKS. As duas decisões precisavam
+ser tomadas antes que o pipeline de apply do `repo-k8s-infra` ou os recursos
+de Gateway do `repo-auth-serverless` pudessem ser implementados de verdade.
 
-## Decision
+## Decisão
 
-1. **Ownership**: `repo-auth-serverless` owns the API Gateway resource,
-   routes (`/auth`, protected routes), and the Lambda Authorizer
-   association. `repo-k8s-infra` owns only the private integration target
-   (internal ALB). Its listener ARN is an externally supplied deployment input
-   when available; this repository does not assume an unsupported
-   cross-repository output or remote-state mechanism.
-2. **Integration**: HTTP API (not REST API) with a VPC Link to an internal
-   Application Load Balancer in the EKS VPC, using `HTTP_PROXY` integration.
+1. **Propriedade**: o `repo-auth-serverless` é dono do recurso API Gateway,
+   das rotas (`/auth`, rotas protegidas) e da associação do Lambda
+   Authorizer. O `repo-k8s-infra` é dono apenas do alvo de integração
+   privado (ALB interno). O ARN do listener é uma entrada de deployment
+   fornecida externamente quando disponível; este repositório não assume um
+   mecanismo de output ou state remoto entre repositórios que não seja
+   suportado.
+2. **Integração**: HTTP API (não REST API) com um VPC Link para um
+   Application Load Balancer interno na VPC do EKS, usando integração
+   `HTTP_PROXY`.
 
-## Rationale
+## Justificativa
 
-- The Gateway's only responsibilities (`/auth` routes, authorizer wiring)
-  live in `repo-auth-serverless` already — co-locating ownership avoids a
-  cross-repo dependency for changes that only ever touch that repo.
-- The VPC Link uses the matching private subnet IDs and the internal ALB
-  security-group output from `repo-k8s-infra` remote state; Lambda/database
-  security groups are not reused for Gateway networking.
-- HTTP API + VPC Link + ALB is cheaper and simpler than REST API + NLB, and
-  neither WAF-at-gateway nor usage plans nor request/response
-  transformation are current requirements.
-- The application is planned to evolve from monolith to microservices.
-  ALB (managed by the AWS Load Balancer Controller via Kubernetes Ingress)
-  supports adding path/host-based routing rules per-service without
-  touching the Gateway or VPC Link. An NLB (the alternative under REST API)
-  is L4-only and would need new target-group wiring per new microservice —
-  this decision was made specifically to avoid that redo later.
+- As únicas responsabilidades do Gateway (rotas `/auth`, wiring do
+  authorizer) já vivem no `repo-auth-serverless` — colocar a propriedade no
+  mesmo lugar evita uma dependência entre repositórios para mudanças que só
+  tocam esse repositório.
+- O VPC Link usa os IDs de sub-rede privada correspondentes e o output do
+  security group do ALB interno do state remoto do `repo-k8s-infra`; os
+  security groups da Lambda/banco de dados não são reutilizados para a rede
+  do Gateway.
+- HTTP API + VPC Link + ALB é mais barato e mais simples do que REST API +
+  NLB, e nem WAF no gateway, nem usage plans, nem transformação de
+  request/response são requisitos atuais.
+- A aplicação está planejada para evoluir de monólito para microsserviços.
+  O ALB (gerenciado pelo AWS Load Balancer Controller via Kubernetes
+  Ingress) suporta adicionar regras de roteamento por path/host por serviço
+  sem tocar no Gateway ou no VPC Link. Um NLB (a alternativa sob REST API) é
+  apenas L4 e exigiria novo wiring de target group por novo microsserviço —
+  esta decisão foi tomada especificamente para evitar esse retrabalho depois.
 
-## Consequences
+## Consequências
 
-- The `backend_integration_uri` input carries an approved internal ALB/NLB
-  listener ARN when available. This document records the contract, not runtime
-  deployment evidence; no direct-ALB exposure is implied.
-- `repo-auth-serverless` must provision the HTTP API, routes, VPC Link, and
-  Lambda Authorizer, consuming the ALB output from `repo-k8s-infra`.
-- Future microservice split: add Kubernetes Ingress rules + Gateway routes
-  incrementally, no re-architecture of this integration.
+- A entrada `backend_integration_uri` carrega um ARN de listener de
+  ALB/NLB interno aprovado, quando disponível. Este documento registra o
+  contrato, não evidência de deployment em runtime; nenhuma exposição direta
+  do ALB é implicada.
+- O `repo-auth-serverless` deve provisionar a HTTP API, as rotas, o VPC Link
+  e o Lambda Authorizer, consumindo o output do ALB do `repo-k8s-infra`.
+- Split futuro em microsserviços: adicionar regras de Ingress do Kubernetes +
+  rotas de Gateway incrementalmente, sem reformular essa integração.
