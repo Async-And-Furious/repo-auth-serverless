@@ -117,9 +117,12 @@ resource "aws_iam_role_policy" "runtime" {
   ] })
 }
 resource "aws_iam_role_policy" "authorizer_ssm" {
-  count  = local.create_authorizer_role ? 1 : 0
-  role   = aws_iam_role.authorizer[0].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.jwt_public_key_parameter_name, "/")}" }] })
+  count = local.create_authorizer_role ? 1 : 0
+  role  = aws_iam_role.authorizer[0].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = var.jwt_public_key_parameter_arn },
+    { Effect = "Allow", Action = ["kms:Decrypt"], Resource = "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alias/aws/ssm" }
+  ] })
 }
 resource "aws_iam_role_policy" "authorizer_ssm_external" {
   count  = !var.academy_mode && trimspace(var.authorizer_lambda_role_arn) != "" ? 1 : 0
