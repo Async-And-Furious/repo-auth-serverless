@@ -10,8 +10,9 @@ em runtime.
 
 ## Contexto
 
-A lista de decisões do HANDOFF.md (§20) deixa três itens relacionados em
-aberto:
+Havia três itens relacionados em aberto (referência histórica a um documento
+de planejamento — `HANDOFF.md` — não encontrado nos repositórios da
+organização):
 
 - #2 — Lambda Authorizer vs. JWT authorizer nativo.
 - #7 — assinatura do JWT: simétrica vs. assimétrica.
@@ -31,9 +32,9 @@ independentemente os JWTs emitidos pelo `repo-auth-serverless`.
 **Authorizer: Lambda Authorizer customizado**, não o JWT authorizer nativo do
 API Gateway. O JWT authorizer nativo exige um endpoint HTTPS público de JWKS
 para o issuer — infraestrutura extra permanente sem outro uso neste projeto.
-Um Lambda Authorizer também combina com o layout de dois handlers que o
-HANDOFF §4.3 já sugere (`authenticate-customer` / `authorize-request`) e
-mantém controle total sobre a validação de claims customizadas.
+Um Lambda Authorizer também combina com o layout de dois handlers já adotado
+neste repositório (`authenticate-customer` / `authorize-request`) e mantém
+controle total sobre a validação de claims customizadas.
 
 **Assinatura: RS256 (assimétrica)**, não HS256. Justificativa:
 
@@ -79,7 +80,7 @@ expiração e semântica de subject `Cliente.id` para o consumidor no monólito.
 - O `authenticate-customer` valida o CPF e realiza a consulta de cliente
   ativo usando o contrato de schema `Cliente` compartilhado antes de emitir
   um token.
-- Resolve as decisões #2, #7 e #8 do HANDOFF.md.
+- Resolve as decisões #2, #7 e #8 listadas no Contexto acima.
 
 ## Alternativas consideradas
 

@@ -2,17 +2,21 @@
 
 - **Status**: Aceito
 - **Data**: 2026-07-29
-- **Fonte de verdade**: o contrato aprovado do workspace. Esta implementação
-  `repo-auth-serverless` e `repo-k8s-infra` para visibilidade local — esta
-  cópia registra o lado do repositório de auth da decisão.
+- **Fonte de verdade**: o contrato aprovado do workspace. Esta decisão está
+  implementada em `repo-auth-serverless` e `repo-k8s-infra`; esta cópia local
+  registra apenas o lado do repositório de auth da decisão, para
+  visibilidade.
 
 ## Contexto
 
-O HANDOFF.md §6.2 deixou a propriedade do API Gateway em aberto, e o §4.2
-sugeriu (sem decidir) uma integração via VPC Link + load balancer interno
-entre o Gateway e a aplicação hospedada no EKS. As duas decisões precisavam
-ser tomadas antes que o pipeline de apply do `repo-k8s-infra` ou os recursos
-de Gateway do `repo-auth-serverless` pudessem ser implementados de verdade.
+A propriedade do API Gateway e a integração entre o Gateway e a aplicação
+hospedada no EKS (via VPC Link + load balancer interno) eram decisões em
+aberto que precisavam ser tomadas antes que o pipeline de apply do
+`repo-k8s-infra` ou os recursos de Gateway do `repo-auth-serverless`
+pudessem ser implementados de verdade. (Essas lacunas vêm de um documento de
+planejamento da Fase 3 — `HANDOFF.md` — que nunca foi encontrado em nenhum
+repositório da organização; a decisão abaixo é autocontida e não depende
+dele.)
 
 ## Decisão
 
