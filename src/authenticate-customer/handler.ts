@@ -46,7 +46,17 @@ function safeErrorName(error: unknown): string {
   return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "UnknownError";
 }
 
-function log(level: "info" | "error", event: string, correlationId: string, startedAt: number, error?: unknown, requestId?: string): void {
+type RejectionReason = "invalid_request" | "invalid_cpf_format" | "customer_not_found_or_inactive";
+
+function log(
+  level: "info" | "error",
+  event: string,
+  correlationId: string,
+  startedAt: number,
+  error?: unknown,
+  requestId?: string,
+  rejectionReason?: RejectionReason,
+): void {
   const record: Record<string, unknown> = {
     level,
     event,
@@ -57,6 +67,7 @@ function log(level: "info" | "error", event: string, correlationId: string, star
   if (process.env.DEPLOY_ENVIRONMENT) record.environment = process.env.DEPLOY_ENVIRONMENT;
   if (process.env.AWS_LAMBDA_FUNCTION_NAME) record.function_name = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (process.env.AWS_LAMBDA_FUNCTION_VERSION) record.function_version = process.env.AWS_LAMBDA_FUNCTION_VERSION;
+  if (rejectionReason) record.rejection_reason = rejectionReason;
   if (error !== undefined) {
     record.error_name = safeErrorName(error);
     record.error_message = sanitizeErrorMessage(error instanceof Error ? error.message : error);
@@ -71,8 +82,16 @@ export async function authenticateCustomer(
 ): Promise<APIGatewayProxyResult> {
   const startedAt = Date.now();
   const correlationId = (event.headers?.["x-correlation-id"] ?? event.headers?.["X-Correlation-Id"])?.trim() || event.requestContext.requestId || crypto.randomUUID();
-  const complete = (statusCode: number, body: Record<string, unknown>) => {
-    log(statusCode >= 500 ? "error" : "info", statusCode >= 400 ? "authenticate_customer_rejected" : "authenticate_customer_succeeded", correlationId, startedAt);
+  const complete = (statusCode: number, body: Record<string, unknown>, rejectionReason?: RejectionReason) => {
+    log(
+      statusCode >= 500 ? "error" : "info",
+      statusCode >= 400 ? "authenticate_customer_rejected" : "authenticate_customer_succeeded",
+      correlationId,
+      startedAt,
+      undefined,
+      undefined,
+      rejectionReason,
+    );
     return response(statusCode, body, correlationId);
   };
   try {
@@ -80,17 +99,17 @@ export async function authenticateCustomer(
     try {
       input = event.body ? JSON.parse(event.body) : {};
     } catch {
-      return complete(400, { error: "invalid_request", message: "Request body must be valid JSON" });
+      return complete(400, { error: "invalid_request", message: "Request body must be valid JSON" }, "invalid_request");
     }
     if (input === null || typeof input !== "object" || Array.isArray(input)) {
-      return complete(400, { error: "invalid_request", message: "A valid CPF is required" });
+      return complete(400, { error: "invalid_request", message: "A valid CPF is required" }, "invalid_request");
     }
     const cpfValue = (input as { cpf?: unknown }).cpf;
-    if (typeof cpfValue !== "string") return complete(400, { error: "invalid_request", message: "A valid CPF is required" });
+    if (typeof cpfValue !== "string") return complete(400, { error: "invalid_request", message: "A valid CPF is required" }, "invalid_request");
     const cpf = normalizeCpf(cpfValue);
-    if (!cpf) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
+    if (!cpf) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" }, "invalid_cpf_format");
     const customer = await lookup(cpf);
-    if (!customer || !customer.active) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" });
+    if (!customer || !customer.active) return complete(401, { error: "unauthorized", message: "Invalid customer credentials" }, "customer_not_found_or_inactive");
     const contract = jwtContract();
     const token = signToken({ sub: String(customer.id) }, await privateKeyProvider());
     return complete(200, {
