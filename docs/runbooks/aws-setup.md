@@ -1,24 +1,26 @@
-# AWS setup prerequisites
+# Pré-requisitos de setup da AWS
 
-This runbook previously carried a per-repository copy of the account-setup
-handoff. The four copies drifted apart and all of them described infrastructure
-that no longer exists (a GitHub OIDC provider and hand-created IAM role, a
-manually provisioned `tc3-terraform-state` bucket with a
-`tc3-terraform-locks` DynamoDB table, HCP Terraform workspaces and
-`TF_API_TOKEN`, and an `hml-apply` approval gate).
+Este runbook antes mantinha uma cópia por repositório do handoff de setup de
+conta. As quatro cópias divergiram entre si e todas descreviam infraestrutura
+que não existe mais (um provedor OIDC do GitHub e uma role IAM criada
+manualmente, um bucket `tc3-terraform-state` provisionado manualmente com uma
+tabela DynamoDB `tc3-terraform-locks`, workspaces do HCP Terraform e
+`TF_API_TOKEN`, e um gate de aprovação `hml-apply`).
 
-The canonical, current documents live in the workspace root:
+Os documentos canônicos e atuais vivem na raiz do workspace:
 
-- `HANDOFF-AWS-SETUP.md` — what a human sets up, per path (AWS Academy or a
-  real account with OIDC), and what the pipeline provisions for itself.
-- `AWS_HML_RUNBOOK.md` — the operator procedure, gates, and
-  `scripts/aws_lab.py` usage.
+- `HANDOFF-AWS-SETUP.md` — o que uma pessoa configura, por caminho (AWS
+  Academy ou uma conta real com OIDC), e o que o pipeline provisiona por
+  conta própria.
+- `AWS_HML_RUNBOOK.md` — o procedimento do operador, os gates, e o uso do
+  `scripts/aws_lab.py`.
 
-Short version for this repository: Terraform state is S3 at
-`tc3-tfstate-<account-id>` with S3 native locking, bootstrapped by
-`.github/scripts/bootstrap-backend.sh` inside the workflow. Nothing about the
-state backend is provisioned by hand. The same AWS Academy session values may
-be rotated into the `hml` and protected `production` GitHub Environments at the
-start of each lab session. `develop` applies HML automatically; `main` applies
-production only after the protected Environment approval. Destructive actions
-remain manual and HML-only.
+Versão resumida para este repositório: o state do Terraform é S3 em
+`tc3-tfstate-<account-id>` com locking nativo do S3, feito o bootstrap pelo
+`.github/scripts/bootstrap-backend.sh` dentro do workflow. Nada relativo ao
+backend de state é provisionado manualmente. Os mesmos valores da sessão do
+AWS Academy podem ser rotacionados para os GitHub Environments `hml` e
+`production` (protegido) no início de cada sessão de laboratório. `develop`
+aplica HML automaticamente; `main` aplica produção somente após a aprovação
+do Environment protegido. Ações destrutivas continuam manuais e restritas a
+HML.
