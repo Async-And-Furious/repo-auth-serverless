@@ -46,23 +46,31 @@ workflow usa o mesmo comando de empacotamento e artefato para um `plan` ou
 
 Configure os GitHub Environments `hml` e `production` com estes secrets:
 
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`
-  (credenciais temporárias do AWS Academy).
-- `JWT_PRIVATE_KEY_SECRET_ARN` e `DATABASE_SECRET_ARN`.
+- `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` do usuário IAM da conta AWS
+  pessoal. `AWS_SESSION_TOKEN` é opcional e só entra se estiver preenchido.
+- `JWT_PRIVATE_KEY_SECRET_ARN`.
+- `SEEDED_CPF`, usado apenas pelo `auth-smoke.yml` (nunca commite nem imprima o
+  CPF).
 
-O workflow sempre usa o modelo de credenciais do Academy para os dois
-ambientes lógicos: pushes para `develop` fazem deploy de HML automaticamente,
-enquanto produção usa a aprovação do Environment protegido `production`.
-Execuções manuais selecionam `hml` ou `prod` e uma operação; não há alternância
-de modo Academy.
+O ARN do segredo do banco não é secret do GitHub: o CI o lê do output
+`db_connection_secret_arn` (ou `db_secret_arn`) no state do `repo-db-infra`
+do ambiente selecionado.
+
+O workflow usa o mesmo modelo de credenciais nos dois ambientes lógicos:
+pushes para `develop` fazem deploy de HML automaticamente, enquanto produção
+usa a aprovação do Environment protegido `production`. Execuções manuais
+selecionam `hml` ou `prod` e uma operação. O `ci.yml` fixa
+`DEPLOY_ACADEMY_MODE: "false"`, então não há alternância de modo Academy.
 
 O dispatch manual expõe `deploy_auth_only`, que assume `false` por padrão; as
 execuções de deploy de HML e produção derivam um listener de backend válido a
 partir do estado correspondente do Kubernetes e sempre selecionam o caminho
 completo de deployment.
 
-As variáveis não sensíveis obrigatórias do Actions são `AWS_REGION`,
-`JWT_PUBLIC_KEY_PARAMETER_NAME` e `JWT_PUBLIC_KEY_PARAMETER_ARN`. A Lambda
+As variáveis não sensíveis lidas pelo Actions são `AWS_REGION`,
+`JWT_PUBLIC_KEY_PARAMETER_NAME`, `JWT_PUBLIC_KEY_PARAMETER_ARN`, `JWT_ISSUER`,
+`JWT_AUDIENCE` e `JWT_EXPIRES_IN` (os três últimos travados por validação nos
+roots em `repo-auth-serverless`, `async-furious-project` e `1800`). A Lambda
 consome as sub-redes privadas correspondentes do state do `repo-k8s-infra` e o
 security group do banco do state do `repo-db-infra`; esses IDs não devem ser
 definidos como variáveis do GitHub. Variáveis opcionais são
@@ -79,44 +87,35 @@ quando esse state ou output não está disponível ou não é um ARN de listener
 válido. Produção também rejeita o listener HML conhecido `tc3-hml-internal`;
 ela nunca faz fallback para HML ou para um deployment apenas de auth.
 
-Para AWS Academy/Lab, defina a role de execução da Lambda existente como uma
-variável de ambiente não sensível:
+Na conta AWS pessoal, o Terraform cria as roles de execução das duas Lambdas.
+As variáveis `AUTH_LAMBDA_ROLE_ARN` e `AUTHORIZER_LAMBDA_ROLE_ARN` continuam
+opcionais, para reaproveitar roles já existentes.
 
-```bash
-gh variable set LAB_ROLE_ARN --env hml --body "arn:aws:iam::<ACCOUNT_ID>:role/LabRole"
-```
+O repositório mantém um caminho legado para contas AWS Academy, hoje inativo:
+com `academy_mode = true`, nenhuma role, anexo ou policy inline é criado, e as
+duas Lambdas passam a usar o `LAB_ROLE_ARN` informado. Essa role precisa
+confiar em Lambda e já permitir acesso a CloudWatch, Secrets Manager, VPC e
+SSM.
 
-A configuração do Academy não cria roles IAM, anexos de role ou policies
-inline, e usa `LAB_ROLE_ARN` para as duas Lambdas. A role existente deve
-confiar em Lambda e já permitir o acesso da função a CloudWatch, Secrets
-Manager, VPC e/ou SSM; as permissões do `LabRole` do AWS Academy são limitadas
-por conta e podem não suportar toda configuração de recurso.
+### Rotacionar as credenciais AWS com `gh`
 
-### Rotacionar credenciais do AWS Academy com `gh`
-
-Defina cada credencial temporária a partir de um arquivo via stdin, para o
-ambiente que está sendo implantado:
+Defina cada valor a partir de um arquivo via stdin, para o ambiente que está
+sendo implantado:
 
 ```bash
 gh secret set AWS_ACCESS_KEY_ID --env hml < access-key-id.txt
 gh secret set AWS_SECRET_ACCESS_KEY --env hml < secret-access-key.txt
-gh secret set AWS_SESSION_TOKEN --env hml < session-token.txt
 ```
 
-Remova os secrets do ambiente depois que a sessão expirar:
-
-```bash
-gh secret delete AWS_ACCESS_KEY_ID --env hml
-gh secret delete AWS_SECRET_ACCESS_KEY --env hml
-gh secret delete AWS_SESSION_TOKEN --env hml
-gh secret delete AWS_ACCESS_KEY_ID --env production
-gh secret delete AWS_SECRET_ACCESS_KEY --env production
-gh secret delete AWS_SESSION_TOKEN --env production
-```
+Repita para o ambiente `production`. Chaves de usuário IAM não expiram
+sozinhas: rotacione-as quando a chave for substituída na conta, e remova o
+secret antigo com `gh secret delete`. Só defina `AWS_SESSION_TOKEN` se estiver
+usando credenciais temporárias; nesse caso ele precisa ser renovado a cada
+sessão, junto com os outros dois.
 
 Use `-R OWNER/REPOSITORY` com esses comandos ao executá-los fora do checkout
-do repositório. Não coloque credenciais temporárias em argumentos de comando
-nem faça commit dos arquivos de origem.
+do repositório. Não coloque credenciais em argumentos de comando nem faça
+commit dos arquivos de origem.
 
 ### State do Terraform e execução local
 
@@ -126,9 +125,10 @@ qualificado por conta `tc3-tfstate-<account-id>`, em
 S3. As operações normais de `plan` e `apply` fazem o bootstrap desse bucket
 antes da inicialização.
 
-As operações manuais `destroy-plan` e `destroy` são intencionalmente
-limitadas a `environment=hml`; o destroy de produção é rejeitado.
-`destroy` também exige a confirmação exata `DESTROY HML`.
+As operações `destroy-plan` e `destroy` estão disponíveis para `hml` e `prod`.
+Em `hml`, `destroy` exige a confirmação exata `DESTROY HML`. Em `prod`, o
+destroy só é aceito em disparo manual (`ci.yml` diretamente ou `down.yml`) e
+exige `DESTROY PROD`.
 O preflight de destroy apenas lê o bucket e o state existentes da conta
 atual. Um bucket ausente, chave ausente, objeto de zero bytes, ou state sem
 nenhuma instância de recurso gerenciado é um no-op bem-sucedido. Erros de
@@ -164,12 +164,24 @@ apenas de auth, para uso local. O padrão do workflow é `false`; a regra de
 URI de backend acima garante que um deployment completo orquestrado habilite
 o caminho protegido de backend.
 
+## Workflows
+
+| Workflow | Disparo | O que faz |
+| --- | --- | --- |
+| `ci.yml` | pull request, push em `develop`/`main`, manual | Validação, plan, apply e destroy |
+| `up.yml` | manual | Apply de HML |
+| `down.yml` | manual | Destroy de HML ou PROD, com confirmação digitada |
+| `auth-smoke.yml` | manual | Apply do ambiente e smoke test: chama `POST /auth` com `SEEDED_CPF` e confere a emissão do token sem imprimi-lo |
+| `trivy.yml` | push, pull request, agendado | Scan do sistema de arquivos com gate em HIGH e CRITICAL |
+
 ## Desenvolvimento local
 
 ```bash
 npm install
+npm run lint
 npm run typecheck
 npm test
+npm run package   # exige Python no PATH (scripts/package-lambda.py)
 ```
 
 A assinatura do JWT e a propriedade do API Gateway seguem as RFC-003 e
