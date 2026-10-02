@@ -17,6 +17,19 @@ e o banco permanece em sub-redes privadas, com acesso limitado pelos grupos de
 segurança. A string de conexão é obtida do AWS Secrets Manager por meio de
 `DATABASE_SECRET_ARN`; nenhum segredo é armazenado no código ou no repositório.
 
+### Atualização (Fase 4, Feature #315)
+
+O `repo-db-infra` passou a publicar um secret e um banco por serviço. O CI
+continua lendo `db_connection_secret_arn` e `db_name` do remote state, que
+agora apontam para o secret `tc3-db-os-<env>` e o banco `os_service` do OS
+Service. A role do OS é dona da tabela `cliente`, então o `SELECT` do login
+funciona. A policy `secretsmanager:GetSecretValue` já é escopada a
+`var.database_secret_arn`, portanto passa a cobrir só o secret do OS, sem
+mudança de código. O Lambda nunca usa o master. **Dívida:** role somente
+leitura dedicada ao Lambda (hoje ele usa a credencial de escrita do OS).
+**Ordem em HML:** `db-infra apply`, depois o deploy do OS (Job de bootstrap) e
+só então o login por CPF volta a funcionar.
+
 ## Justificativa
 
 - Evita acoplar a disponibilidade do login à disponibilidade do cluster
