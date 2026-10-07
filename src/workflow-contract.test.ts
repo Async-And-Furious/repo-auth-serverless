@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const downWorkflow = readFileSync(new URL("../.github/workflows/down.yml", import.meta.url), "utf8");
+const prodInfra = readFileSync(new URL("../infra/prod/main.tf", import.meta.url), "utf8");
 
 describe("delivery workflow contract", () => {
   it("keeps automatic HML and protected production delivery distinct", () => {
@@ -57,5 +58,15 @@ describe("delivery workflow contract", () => {
     expect(downWorkflow).toContain("options: [hml, prod]");
     expect(downWorkflow).toContain("environment: ${{ inputs.environment }}");
     expect(downWorkflow).toContain("operation: destroy");
+  });
+
+  it("keeps the multi-service edge explicit and correlated", () => {
+    expect(prodInfra).toContain('route_key  = "GET /api/v1/health/live"');
+    expect(prodInfra).toContain('api      = "ANY /api/v1/{proxy+}"');
+    expect(prodInfra).toContain('billing  = "ANY /billing/{proxy+}"');
+    expect(prodInfra).toContain('execucao = "ANY /execucao/{proxy+}"');
+    expect(prodInfra).toContain('authorization_type = "CUSTOM"');
+    expect(prodInfra).toContain('"overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"');
+    expect(prodInfra).not.toContain('route_key          = "ANY /{proxy+}"');
   });
 });
