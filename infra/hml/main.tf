@@ -39,6 +39,11 @@ locals {
   database_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
   vpc_link_subnet_ids         = var.destroy_mode ? [] : data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
   vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
+  protected_route_prefixes = {
+    api      = "ANY /api/v1/{proxy+}"
+    billing  = "ANY /billing/{proxy+}"
+    execucao = "ANY /execucao/{proxy+}"
+  }
 }
 
 resource "aws_security_group" "auth_lambda" {
@@ -213,11 +218,28 @@ resource "aws_apigatewayv2_integration" "backend" {
   payload_format_version = "1.0"
   request_parameters     = { "overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id" }
 }
+resource "aws_apigatewayv2_integration" "health" {
+  count                  = local.backend_enabled ? 1 : 0
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "HTTP_PROXY"
+  integration_uri        = var.backend_integration_uri
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = aws_apigatewayv2_vpc_link.backend[0].id
+  payload_format_version = "1.0"
+}
+resource "aws_apigatewayv2_route" "health" {
+  count     = local.backend_enabled ? 1 : 0
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/v1/health/live"
+  target    = "integrations/${aws_apigatewayv2_integration.health[0].id}"
+}
 resource "aws_apigatewayv2_route" "protected" {
-  count              = local.backend_enabled ? 1 : 0
+  for_each = local.backend_enabled ? local.protected_route_prefixes : {}
+
   depends_on         = [aws_lambda_permission.api_authorizer]
   api_id             = aws_apigatewayv2_api.http.id
-  route_key          = "ANY /{proxy+}"
+  route_key          = each.value
   target             = "integrations/${aws_apigatewayv2_integration.backend[0].id}"
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.lambda.id
