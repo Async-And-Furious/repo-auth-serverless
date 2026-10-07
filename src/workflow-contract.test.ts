@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const downWorkflow = readFileSync(new URL("../.github/workflows/down.yml", import.meta.url), "utf8");
+const hmlInfra = readFileSync(new URL("../infra/hml/main.tf", import.meta.url), "utf8");
 const prodInfra = readFileSync(new URL("../infra/prod/main.tf", import.meta.url), "utf8");
 
 describe("delivery workflow contract", () => {
@@ -61,12 +62,17 @@ describe("delivery workflow contract", () => {
   });
 
   it("keeps the multi-service edge explicit and correlated", () => {
-    expect(prodInfra).toContain('route_key  = "GET /api/v1/health/live"');
-    expect(prodInfra).toContain('api      = "ANY /api/v1/{proxy+}"');
-    expect(prodInfra).toContain('billing  = "ANY /billing/{proxy+}"');
-    expect(prodInfra).toContain('execucao = "ANY /execucao/{proxy+}"');
-    expect(prodInfra).toContain('authorization_type = "CUSTOM"');
-    expect(prodInfra).toContain('"overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"');
-    expect(prodInfra).not.toContain('route_key          = "ANY /{proxy+}"');
+    for (const infra of [hmlInfra, prodInfra]) {
+      expect(infra).toContain('route_key = "GET /api/v1/health/live"');
+      expect(infra).toContain('api      = "ANY /api/v1/{proxy+}"');
+      expect(infra).toContain('billing  = "ANY /billing/{proxy+}"');
+      expect(infra).toContain('execucao = "ANY /execucao/{proxy+}"');
+      expect(infra).toContain('authorization_type = "CUSTOM"');
+      expect(infra).toContain('"overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"');
+      expect(infra).not.toContain('route_key          = "ANY /{proxy+}"');
+      expect(infra).toContain('resource "aws_apigatewayv2_integration" "health"');
+      expect(infra).toContain('target    = "integrations/${aws_apigatewayv2_integration.health[0].id}"');
+      expect(infra).not.toMatch(/resource "aws_apigatewayv2_integration" "health"[\s\S]*?request_parameters/);
+    }
   });
 });

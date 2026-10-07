@@ -224,12 +224,21 @@ resource "aws_apigatewayv2_integration" "backend" {
   payload_format_version = "1.0"
   request_parameters     = { "overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id" }
 }
+resource "aws_apigatewayv2_integration" "health" {
+  count                  = local.backend_enabled ? 1 : 0
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "HTTP_PROXY"
+  integration_uri        = var.backend_integration_uri
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = aws_apigatewayv2_vpc_link.backend[0].id
+  payload_format_version = "1.0"
+}
 resource "aws_apigatewayv2_route" "health" {
-  count      = local.backend_enabled ? 1 : 0
-  depends_on = [aws_lambda_permission.api_authorizer]
-  api_id     = aws_apigatewayv2_api.http.id
-  route_key  = "GET /api/v1/health/live"
-  target     = "integrations/${aws_apigatewayv2_integration.backend[0].id}"
+  count     = local.backend_enabled ? 1 : 0
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/v1/health/live"
+  target    = "integrations/${aws_apigatewayv2_integration.health[0].id}"
 }
 resource "aws_apigatewayv2_route" "protected" {
   for_each = local.backend_enabled ? local.protected_route_prefixes : {}
