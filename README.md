@@ -52,7 +52,8 @@ Configure os GitHub Environments `hml` e `production` com estes secrets:
 - `SEEDED_CPF`, usado apenas pelo `auth-smoke.yml` (nunca commite nem imprima o
   CPF).
 
-O ARN do segredo do banco não é secret do GitHub: o CI o lê do output
+O ARN do segredo do banco (agora o do OS Service, `tc3-db-os-<env>`, banco
+`os_service`) não é secret do GitHub: o CI o lê do output
 `db_connection_secret_arn` (ou `db_secret_arn`) no state do `repo-db-infra`
 do ambiente selecionado.
 
