@@ -39,10 +39,11 @@ locals {
   database_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.db_infra.outputs.db_security_group_id]
   vpc_link_subnet_ids         = var.destroy_mode ? [] : data.terraform_remote_state.k8s_infra.outputs.private_subnet_ids
   vpc_link_security_group_ids = var.destroy_mode ? [] : [data.terraform_remote_state.k8s_infra.outputs.internal_alb_security_group_id]
-  protected_route_prefixes = {
-    api      = "ANY /api/v1/{proxy+}"
-    billing  = "ANY /billing/{proxy+}"
-    execucao = "ANY /execucao/{proxy+}"
+  public_backend_routes = {
+    order_status   = "GET /api/v1/ordens-servico/{id}/status"
+    budget_approve = "PATCH /api/v1/orcamentos/{ordemServicoId}/aprovar"
+    budget_decline = "PATCH /api/v1/orcamentos/{ordemServicoId}/recusar"
+    mercado_pago   = "POST /api/v1/webhooks/mercado-pago"
   }
 }
 
@@ -229,17 +230,26 @@ resource "aws_apigatewayv2_integration" "health" {
   payload_format_version = "1.0"
 }
 resource "aws_apigatewayv2_route" "health" {
-  count     = local.backend_enabled ? 1 : 0
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "GET /api/v1/health/live"
-  target    = "integrations/${aws_apigatewayv2_integration.health[0].id}"
+  count              = local.backend_enabled ? 1 : 0
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /api/v1/health/live"
+  target             = "integrations/${aws_apigatewayv2_integration.health[0].id}"
+  authorization_type = "NONE"
+}
+resource "aws_apigatewayv2_route" "public_backend" {
+  for_each = local.backend_enabled ? local.public_backend_routes : {}
+
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = each.value
+  target             = "integrations/${aws_apigatewayv2_integration.backend[0].id}"
+  authorization_type = "NONE"
 }
 resource "aws_apigatewayv2_route" "protected" {
-  for_each = local.backend_enabled ? local.protected_route_prefixes : {}
+  count = local.backend_enabled ? 1 : 0
 
   depends_on         = [aws_lambda_permission.api_authorizer]
   api_id             = aws_apigatewayv2_api.http.id
-  route_key          = each.value
+  route_key          = "ANY /{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.backend[0].id}"
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.lambda.id

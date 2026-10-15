@@ -2,17 +2,20 @@
 
 ## Scope
 
-Keep `POST /auth` public. Publish explicit API Gateway routes for the
-documented public health endpoint and protected service prefixes (`/api/v1`,
-`/billing`, and `/execucao`), all protected routes using the Lambda authorizer.
+Keep `POST /auth` public and keep `GET /api/v1/health/live` public. Use one
+authorizer-protected catch-all route for all other traffic, with explicit public
+backend exceptions for the documented order status, budget approval/refusal,
+and Mercado Pago webhook routes.
 
 ## Contract
 
-- Public routes are explicit and never use a catch-all route.
-- Protected routes are explicit `ANY` proxy routes with `authorization_type =
-  "CUSTOM"`.
-- The authorizer receives and propagates `x-correlation-id`; backend
-  integration overwrites that header from authorizer context.
+- `POST /auth` and `GET /api/v1/health/live` are public.
+- Protected traffic uses one `ANY /{proxy+}` route with
+  `authorization_type = "CUSTOM"`.
+- The four explicit public backend routes use `authorization_type = "NONE"`.
+- Only the backend integration overwrites `x-correlation-id` from authorizer
+  context; the health integration does not overwrite it.
+- `aprovar-servico` and `rastreamento` have no public routes.
 - No AWS API Gateway apply is performed locally.
 
 ## Validation
