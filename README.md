@@ -20,9 +20,12 @@ roots impõem `repo-auth-serverless`), `audience` a partir de `JWT_AUDIENCE`
 resolver essa identidade e reverificar o status ativo. Os verificadores devem
 exigir RS256, issuer, audience e `exp`.
 Os correlation IDs são retornados e propagados às requisições protegidas do
-backend. Em HML e PROD, `POST /auth` e `GET /api/v1/health/live` permanecem
-públicos; o tráfego restante usa `ANY /{proxy+}` com authorizer CUSTOM. As
-exceções públicas explícitas no backend são `GET /api/v1/ordens-servico/{id}/status`,
+backend. No HML da Fase 4, `POST /auth` permanece público e o tráfego restante
+usa `ANY /{proxy+}` com authorizer CUSTOM. Nesse ambiente, health não é exposto
+pelo API Gateway: `/api/v1/health/live` é usado diretamente pelos health checks
+do target group do ALB. A configuração de Gateway de PROD da Fase 3 permanece
+inalterada. As exceções públicas explícitas no backend são
+`GET /api/v1/ordens-servico/{id}/status`,
 `PATCH /api/v1/orcamentos/{ordemServicoId}/aprovar`,
 `PATCH /api/v1/orcamentos/{ordemServicoId}/recusar` e
 `POST /api/v1/webhooks/mercado-pago`. Não há exceções públicas para

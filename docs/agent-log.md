@@ -238,9 +238,16 @@
 
 ## 2026-10-15 — Contrato de rotas públicas da issue #317
 
-- HML e PROD agora mantêm `/auth` e health público, usam um único
+- HML e PROD mantêm `/auth` público, usam um único
   `ANY /{proxy+}` com authorizer CUSTOM e declaram as quatro exceções públicas
   no backend com `authorization_type = "NONE"`.
 - O overwrite de correlação permanece somente na integração backend; não há
   rotas públicas para `aprovar-servico` ou `rastreamento`.
 - Nenhum apply AWS foi executado.
+
+## 2026-10-28 — Correção do health público HML da issue #317
+
+- Removida somente em HML a rota e integração pública de health no API Gateway;
+  a probe de `/api/v1/health/live` continua no target group do ALB.
+- A rota, integração e output de health existentes em PROD foram preservados
+  conforme o escopo HML-only da ADR-0021. Nenhum apply AWS foi executado.
