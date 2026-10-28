@@ -64,12 +64,8 @@ describe("delivery workflow contract", () => {
   });
 
   it("keeps the public and protected edge contract consistent in HML and PROD", () => {
-    for (const [infra, outputs] of [[hmlInfra, hmlOutputs], [prodInfra, prodOutputs]]) {
+    for (const infra of [hmlInfra, prodInfra]) {
       expect(infra).toContain('route_key = "POST /auth"');
-      expect(infra).not.toContain("GET /api/v1/health/live");
-      expect(infra).not.toContain('aws_apigatewayv2_integration" "health"');
-      expect(infra).not.toContain('aws_apigatewayv2_route" "health"');
-      expect(outputs).not.toContain("public_health_route_key");
       expect(infra).toContain('route_key          = "ANY /{proxy+}"');
       expect(infra).toContain('order_status   = "GET /api/v1/ordens-servico/{id}/status"');
       expect(infra).toContain('budget_approve = "PATCH /api/v1/orcamentos/{ordemServicoId}/aprovar"');
@@ -82,5 +78,15 @@ describe("delivery workflow contract", () => {
       expect(infra).not.toContain('ANY /billing/{proxy+}');
       expect(infra).not.toContain('ANY /execucao/{proxy+}');
     }
+
+    expect(hmlInfra).not.toContain("GET /api/v1/health/live");
+    expect(hmlInfra).not.toContain('aws_apigatewayv2_integration" "health"');
+    expect(hmlInfra).not.toContain('aws_apigatewayv2_route" "health"');
+    expect(hmlOutputs).not.toContain("public_health_route_key");
+
+    expect(prodInfra).toContain('route_key          = "GET /api/v1/health/live"');
+    expect(prodInfra).toContain('resource "aws_apigatewayv2_integration" "health"');
+    expect(prodInfra).toContain('target             = "integrations/${aws_apigatewayv2_integration.health[0].id}"');
+    expect(prodOutputs).toContain("public_health_route_key");
   });
 });

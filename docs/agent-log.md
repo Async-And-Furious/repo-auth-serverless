@@ -245,9 +245,9 @@
   rotas públicas para `aprovar-servico` ou `rastreamento`.
 - Nenhum apply AWS foi executado.
 
-## 2026-10-28 — Correção do health público da issue #317
+## 2026-10-28 — Correção do health público HML da issue #317
 
-- Removida a rota e integração pública do health no API Gateway em HML e PROD;
-  `/api/v1/health/live` continua reservado às probes do target group do ALB.
-- O contrato mantém `POST /auth`, as quatro rotas backend públicas e
-  `ANY /{proxy+}` com authorizer CUSTOM. Nenhum apply AWS foi executado.
+- Removida somente em HML a rota e integração pública de health no API Gateway;
+  a probe de `/api/v1/health/live` continua no target group do ALB.
+- A rota, integração e output de health existentes em PROD foram preservados
+  conforme o escopo HML-only da ADR-0021. Nenhum apply AWS foi executado.
