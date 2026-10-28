@@ -10,9 +10,6 @@ output "auth_route_key" {
 output "authorizer_id" {
   value = aws_apigatewayv2_authorizer.lambda.id
 }
-output "public_health_route_key" {
-  value = local.backend_enabled ? aws_apigatewayv2_route.health[0].route_key : null
-}
 output "protected_route_keys" {
   value = local.backend_enabled ? { for name, route in aws_apigatewayv2_route.protected : name => route.route_key } : {}
 }

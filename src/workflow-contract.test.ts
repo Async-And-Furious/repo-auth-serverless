@@ -5,6 +5,8 @@ const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta
 const downWorkflow = readFileSync(new URL("../.github/workflows/down.yml", import.meta.url), "utf8");
 const hmlInfra = readFileSync(new URL("../infra/hml/main.tf", import.meta.url), "utf8");
 const prodInfra = readFileSync(new URL("../infra/prod/main.tf", import.meta.url), "utf8");
+const hmlOutputs = readFileSync(new URL("../infra/hml/outputs.tf", import.meta.url), "utf8");
+const prodOutputs = readFileSync(new URL("../infra/prod/outputs.tf", import.meta.url), "utf8");
 
 describe("delivery workflow contract", () => {
   it("keeps automatic HML and protected production delivery distinct", () => {
@@ -62,8 +64,12 @@ describe("delivery workflow contract", () => {
   });
 
   it("keeps the public and protected edge contract consistent in HML and PROD", () => {
-    for (const infra of [hmlInfra, prodInfra]) {
-      expect(infra).toContain('route_key          = "GET /api/v1/health/live"');
+    for (const [infra, outputs] of [[hmlInfra, hmlOutputs], [prodInfra, prodOutputs]]) {
+      expect(infra).toContain('route_key = "POST /auth"');
+      expect(infra).not.toContain("GET /api/v1/health/live");
+      expect(infra).not.toContain('aws_apigatewayv2_integration" "health"');
+      expect(infra).not.toContain('aws_apigatewayv2_route" "health"');
+      expect(outputs).not.toContain("public_health_route_key");
       expect(infra).toContain('route_key          = "ANY /{proxy+}"');
       expect(infra).toContain('order_status   = "GET /api/v1/ordens-servico/{id}/status"');
       expect(infra).toContain('budget_approve = "PATCH /api/v1/orcamentos/{ordemServicoId}/aprovar"');
@@ -75,9 +81,6 @@ describe("delivery workflow contract", () => {
       expect(infra).not.toContain('ANY /api/v1/{proxy+}');
       expect(infra).not.toContain('ANY /billing/{proxy+}');
       expect(infra).not.toContain('ANY /execucao/{proxy+}');
-      expect(infra).toContain('resource "aws_apigatewayv2_integration" "health"');
-      expect(infra).toContain('target             = "integrations/${aws_apigatewayv2_integration.health[0].id}"');
-      expect(infra).not.toMatch(/resource "aws_apigatewayv2_integration" "health"[\s\S]*?request_parameters/);
     }
   });
 });
