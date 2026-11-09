@@ -219,12 +219,26 @@ resource "aws_apigatewayv2_integration" "backend" {
   payload_format_version = "1.0"
   request_parameters     = { "overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id" }
 }
+# Rotas públicas: integração própria, sem overwrite de x-correlation-id. Sem authorizer,
+# $context.authorizer.correlation_id não tem valor, e o overwrite sobrescreveria o id enviado
+# pelo cliente. O backend valida o header recebido e gera um id quando ele falta (mesmo padrão
+# da integração health do PROD).
+resource "aws_apigatewayv2_integration" "public_backend" {
+  count                  = local.backend_enabled ? 1 : 0
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "HTTP_PROXY"
+  integration_uri        = var.backend_integration_uri
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = aws_apigatewayv2_vpc_link.backend[0].id
+  payload_format_version = "1.0"
+}
 resource "aws_apigatewayv2_route" "public_backend" {
   for_each = local.backend_enabled ? local.public_backend_routes : {}
 
   api_id             = aws_apigatewayv2_api.http.id
   route_key          = each.value
-  target             = "integrations/${aws_apigatewayv2_integration.backend[0].id}"
+  target             = "integrations/${aws_apigatewayv2_integration.public_backend[0].id}"
   authorization_type = "NONE"
 }
 resource "aws_apigatewayv2_route" "protected" {

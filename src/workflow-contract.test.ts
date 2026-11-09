@@ -8,6 +8,15 @@ const prodInfra = readFileSync(new URL("../infra/prod/main.tf", import.meta.url)
 const hmlOutputs = readFileSync(new URL("../infra/hml/outputs.tf", import.meta.url), "utf8");
 const prodOutputs = readFileSync(new URL("../infra/prod/outputs.tf", import.meta.url), "utf8");
 
+// Bloco de um recurso de nível raiz do Terraform: do cabeçalho até o `}` que o fecha.
+function resourceBlock(infra: string, header: string): string {
+  const start = infra.indexOf(header);
+  expect(start, `${header} não encontrado`).toBeGreaterThanOrEqual(0);
+  const end = infra.indexOf("\n}\n", start);
+  expect(end, `${header} sem fechamento`).toBeGreaterThan(start);
+  return infra.slice(start, end + 3);
+}
+
 describe("delivery workflow contract", () => {
   it("keeps automatic HML and protected production delivery distinct", () => {
     expect(workflow).toContain("github.ref == 'refs/heads/develop'");
@@ -74,6 +83,23 @@ describe("delivery workflow contract", () => {
       expect(infra).toContain('authorization_type = "CUSTOM"');
       expect(infra).toContain('authorization_type = "NONE"');
       expect(infra).toContain('"overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"');
+
+      // Só a integração protegida (backend) sobrescreve o correlation id, a partir do authorizer.
+      expect(resourceBlock(infra, 'resource "aws_apigatewayv2_integration" "backend"')).toContain(
+        '"overwrite:header.x-correlation-id" = "$context.authorizer.correlation_id"'
+      );
+      // As rotas públicas (authorization_type NONE) usam integração própria, sem request_parameters.
+      const publicIntegration = resourceBlock(
+        infra,
+        'resource "aws_apigatewayv2_integration" "public_backend"'
+      );
+      expect(publicIntegration).not.toContain("request_parameters");
+      expect(publicIntegration).not.toContain("x-correlation-id");
+      const publicRoute = resourceBlock(infra, 'resource "aws_apigatewayv2_route" "public_backend"');
+      expect(publicRoute).toContain(
+        'target             = "integrations/${aws_apigatewayv2_integration.public_backend[0].id}"'
+      );
+      expect(publicRoute).toContain('authorization_type = "NONE"');
       expect(infra).not.toContain('ANY /api/v1/{proxy+}');
       expect(infra).not.toContain('ANY /billing/{proxy+}');
       expect(infra).not.toContain('ANY /execucao/{proxy+}');
