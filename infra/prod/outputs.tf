@@ -17,7 +17,7 @@ output "protected_route_keys" {
   value = local.backend_enabled ? { for name, route in aws_apigatewayv2_route.protected : name => route.route_key } : {}
 }
 output "protected_route_key" {
-  value = local.backend_enabled ? aws_apigatewayv2_route.protected["api"].route_key : null
+  value = local.backend_enabled ? aws_apigatewayv2_route.protected[0].route_key : null
 }
 output "backend_integration_uri" {
   value = local.backend_enabled ? var.backend_integration_uri : null
